@@ -738,19 +738,13 @@ setSearchMessage(`Usuário${usersFound.length > 1 ? 's' : ''} encontrado${usersF
         setShowAddManually(true);
       }
 
-      // Combine any local contacts mapping into foundResults
-      const contactMapped = contactResults.map(contact => ({
-        id: contact.id,
-        source: 'contacts',
-        company: contact.company ?? '',
-        document: contact.document ?? '',
-        const contactMapped = contactResults.map(contact => ({
-          id: contact.id,
-      }));
-        foundResults = [...contactMapped, ...usersFound];
+      // If we still have no results after both steps, show "add manually" option
+      if (foundResults.length === 0) {
+        setShowAddManually(true);
+      }
+      
       // Return the combined array
       return foundResults;
-
     } catch (error) {
       console.error('Error in search process:', error);
       setSearchError(error.message);
@@ -1535,7 +1529,6 @@ const handleCreateContact = async (e) => {
                   </div>
                   {/* Modal Footer */}
                   <div className={`px-4 py-3 ${darkMode ? 'bg-gray-900' : 'bg-gray-50'} border-t ${darkMode ? 'border-gray-700' : 'border-gray-200'}`}>
-                  <div className={`px-4 py-3 ${darkMode ? 'bg-gray-900' : 'bg-gray-50'} border-t ${darkMode ? 'border-gray-700' : 'border-gray-200'}`}>
                     {!showNewContactForm && (
                       <div className="flex justify-center">
                         <button
@@ -1547,11 +1540,14 @@ const handleCreateContact = async (e) => {
                       </div>
                     )}
                   </div>
-                </div>
-              </>
+                </>
             )}
           </div>     {/* close modal content */}
-        )}           {/* close isOpen */}
-      </div>
-    );
+        </div>
+          </div>     {/* close modal content */}
+      )}           {/* close isOpen */}
+    </>
+  );
+};
+
 export default NewConversationModal;

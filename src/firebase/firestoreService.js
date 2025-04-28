@@ -4,6 +4,10 @@ import {
   getDocs, getDoc, query, where, orderBy, limit,
   onSnapshot, serverTimestamp, writeBatch
 } from 'firebase/firestore';
+import { 
+  getAuth, fetchSignInMethodsForEmail, 
+  signInWithEmailAndPassword, createUserWithEmailAndPassword 
+} from 'firebase/auth';
 import { firestore } from './config';
 
 // ============= USUÁRIOS =============
@@ -1049,8 +1053,7 @@ export const searchUsersByPhone = async (phone) => {
 export const searchUsersByDocument = async (document) => {
   try {
     // Normaliza o documento (apenas dígitos)
-    // Normaliza o documento (apenas dígitos)
-    const normalizedDoc = document.replace(/\\D/g, '');
+    const normalizedDoc = document.replace(/\D/g, '');
     if (normalizedDoc.length < 11) {
       return [];
     }
@@ -1089,12 +1092,9 @@ export const searchUsersByDocument = async (document) => {
   } catch (error) {
     console.error('Erro ao buscar usuários por documento:', error);
     throw error;
-  };
+  }
+};
 
-/**
- * @param {Object} mockDatabase Base de dados mock com users, contacts, etc.
- * @returns {Promise<Object>} Resumo da migração
- */
 const firestoreService = {
   // Usuários
   getUser,
@@ -1132,7 +1132,6 @@ const firestoreService = {
   searchContacts,
   searchMessages,
   searchMarketplaceProducts,
-  searchUsers,
   searchUsersByEmail,
   searchUsersByPhone,
   searchUsersByDocument
