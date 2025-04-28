@@ -619,9 +619,9 @@ const NewConversationModal = ({ isOpen, onClose, contacts, onSelectContact, onAd
       // ===================================================================
       if (foundResults.length === 0) {
         console.log('No contacts found, searching in users...');
+        let usersFound = [];
         try {
           const usersCollection = collection(firestore, 'users');
-          let usersFound = [];
           
           // Try various field combinations, as the schema might vary
           const possibleEmailFields = ['email', 'userEmail', 'emailAddress'];
@@ -717,16 +717,18 @@ const NewConversationModal = ({ isOpen, onClose, contacts, onSelectContact, onAd
             }
           }
           
-// Append user results to foundResults (not overwrite)
-if (usersFound && usersFound.length > 0) {
-  console.log(`Found ${usersFound.length} users in global search`, usersFound);
-  foundResults = [...foundResults, ...usersFound];
-  setSearchMessage(`Usuário${usersFound.length > 1 ? 's' : ''} encontrado${usersFound.length > 1 ? 's' : ''} no app.`);
-}
+          // Append user results to foundResults (not overwrite)
+          if (usersFound && usersFound.length > 0) {
+            console.log(`Found ${usersFound.length} users in global search`, usersFound);
+            foundResults = [...foundResults, ...usersFound];
+            setSearchMessage(`Usuário${usersFound.length > 1 ? 's' : ''} encontrado${usersFound.length > 1 ? 's' : ''} no app.`);
+          }
           
           console.log('Users found:', usersFound);
-          
-          console.log('Users found:', usersFound);
+        } catch (globalSearchError) {
+          console.error('Error during global user search:', globalSearchError);
+          // Continue execution even if global search fails
+        }
           
           // This is redundant since we already added the users to foundResults above
           // Remove to avoid duplication of results
