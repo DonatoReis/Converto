@@ -6,9 +6,10 @@ import Database from '../../utils/database';
 import { QRCodeSVG } from 'qrcode.react';
 
 const PrivacySettings = () => {
-  const { keyFingerprint } = useEncryption();
+  const { keyFingerprint, encryptionEnabled } = useEncryption();
 
   const [currentUser, setCurrentUser] = useState(null);
+  const [isEncryptionEnabled, setIsEncryptionEnabled] = useState(true);
   
   // Two-Factor Authentication State
   const [twoFactorSettings, setTwoFactorSettings] = useState({
@@ -44,6 +45,31 @@ const PrivacySettings = () => {
       }
     }
   }, []);
+
+  // Initialize encryption state from context if available
+  useEffect(() => {
+    if (encryptionEnabled !== undefined) {
+      setIsEncryptionEnabled(encryptionEnabled);
+    }
+  }, [encryptionEnabled]);
+  
+  // Toggle encryption function
+  const handleToggleEncryption = () => {
+    // In a real app, you would call an API to update encryption settings
+    setIsEncryptionEnabled(!isEncryptionEnabled);
+    
+    // Show notification that this is a critical security setting
+    if (isEncryptionEnabled) {
+      if (!confirm("Desativar a criptografia pode comprometer a segurança das suas mensagens. Tem certeza?")) {
+        return; // User canceled, don't toggle
+      }
+    }
+    
+    // Could also call a function from useEncryption context to update global encryption state
+    alert(isEncryptionEnabled ? 
+      "A criptografia será desativada na próxima sessão" : 
+      "A criptografia foi ativada para suas mensagens");
+  };
   
   // Save all privacy settings
   const savePrivacySettings = () => {
@@ -150,25 +176,11 @@ const PrivacySettings = () => {
         </button>
       </div>
 
-      {/* End-to-End Encryption - Information Only, No Toggle */}
+      {/* Privacy and Security Settings */}
       <div className="p-6 rounded-lg bg-white dark:bg-gray-800 shadow dark:shadow-none">
         <h2 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">
-          Criptografia de Ponta a Ponta
+          Configurações de Privacidade Adicionais
         </h2>
-        
-        <div className="mb-4">
-          <div>
-            <p className="text-gray-700 dark:text-gray-300 mb-1">
-              Criptografia de ponta a ponta ativa
-            </p>
-            <p className="text-sm text-gray-500 dark:text-gray-400">
-              Suas mensagens são sempre criptografadas e só podem ser lidas por você e pelo destinatário
-            </p>
-          </div>
-        </div>
-
-        <div className="mt-4 p-4 rounded-md bg-gray-100 dark:bg-gray-700">
-        </div>
 
         {/* Disable Link Previews */}
         <div className="mb-4">
