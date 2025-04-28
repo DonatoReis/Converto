@@ -159,7 +159,7 @@ const SearchScreen = () => {
     };
     
     loadInitialData();
-  }, [location.pathname]); // Only run on initial load or path change
+  }, [location.pathname, searchTerm, filters]); // Re-run when path, search term or filters change
   
   // Update URL when search or filters change
   useEffect(() => {
@@ -222,6 +222,30 @@ const SearchScreen = () => {
     }
   };
 
+  // Handler for filter changes from FilterBar component
+  const handleFilterChange = (newFilters) => {
+    setFilters(prevFilters => ({
+      ...prevFilters,
+      ...newFilters
+    }));
+    
+    // Re-fetch results with new filters
+    if (searchTerm) {
+      setLoading(true);
+      fetchSearchResults(searchTerm, {...filters, ...newFilters})
+        .then(searchResults => {
+          setResults(searchResults);
+          setLoading(false);
+        })
+        .catch(err => {
+          console.error('Error filtering results:', err);
+          setError(err);
+          setResults([...fallbackResults]);
+          setLoading(false);
+        });
+    }
+  };
+
   const handleClearFilters = () => {
     setFilters({
       sector: [],
@@ -232,7 +256,7 @@ const SearchScreen = () => {
       unread: false,
       priceRange: [0, 5000]
     });
-    setResults(mockResults);
+    setResults(fallbackResults);
   };
 
   const loadMore = () => {
