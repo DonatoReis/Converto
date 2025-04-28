@@ -1052,47 +1052,88 @@ export const searchUsersByPhone = async (phone) => {
  */
 export const searchUsersByDocument = async (document) => {
   try {
+    // Verifica se o documento é válido
+    if (!document || typeof document !== 'string') {
+      console.log('Documento inválido ou não fornecido');
+      return [];
+    }
+    
     // Normaliza o documento (apenas dígitos)
     const normalizedDoc = document.replace(/\D/g, '');
     if (normalizedDoc.length < 11) {
+      console.log(`Documento muito curto: ${normalizedDoc.length} dígitos (mínimo 11)`);
       return [];
     }
+    
+    console.log(`Buscando usuários com documento normalizado: ${normalizedDoc}`);
+    
     // Busca na coleção de usuários
     const usersRef = collection(firestore, 'users');
     const documentResults = [];
 
-    // Busca por 'cpfCnpj' (campo mais comum)
-    const q1 = query(
-      usersRef,
-      where('cpfCnpj', '==', normalizedDoc),
-      limit(5)
-    );
-    const snapshot1 = await getDocs(q1);
-    documentResults.push(...snapshot1.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data(),
-      source: 'global'
-    })));
-
-    // Busca por 'document' (formato alternativo)
-    if (documentResults.length === 0) {
-      const q2 = query(
+    try {
+      // Busca por 'cpfCnpj' (campo mais comum)
+      const q1 = query(
         usersRef,
-        where('document', '==', normalizedDoc),
+        where('cpfCnpj', '==', normalizedDoc),
         limit(5)
       );
-      const snapshot2 = await getDocs(q2);
-      documentResults.push(...snapshot2.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-        source: 'global'
-      })));
+      const snapshot1 = await getDocs(q1);
+      console.log(`Encontrados ${snapshot1.docs.length} usuários pelo campo 'cpfCnpj'`);
+      
+      documentResults.push(...snapshot1.docs.map(doc => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          fullName: data.fullName || data.nome || data.name || 'Usuário',
+          email: data.email || '',
+          company: data.empresa || data.company || '',
+          document: data.cpfCnpj || data.document || '',
+          phone: data.telefone || data.phone || '',
+          source: 'users'
+        };
+      }));
+    } catch (searchError) {
+      console.error('Erro na busca por cpfCnpj:', searchError);
+      // Continue com a próxima busca mesmo se esta falhar
     }
+
+    // Busca por 'document' (formato alternativo) apenas se não encontrou resultados anteriormente
+    if (documentResults.length === 0) {
+      try {
+        const q2 = query(
+          usersRef,
+          where('document', '==', normalizedDoc),
+          limit(5)
+        );
+        const snapshot2 = await getDocs(q2);
+        console.log(`Encontrados ${snapshot2.docs.length} usuários pelo campo 'document'`);
+        
+        documentResults.push(...snapshot2.docs.map(doc => {
+          const data = doc.data();
+          return {
+            id: doc.id,
+            fullName: data.fullName || data.nome || data.name || 'Usuário',
+            email: data.email || '',
+            company: data.empresa || data.company || '',
+            document: data.document || data.cpfCnpj || '',
+            phone: data.telefone || data.phone || '',
+            source: 'users'
+          };
+        }));
+      } catch (searchError) {
+        console.error('Erro na busca por document:', searchError);
+      }
+    }
+    
+    console.log(`Total de resultados para documento ${normalizedDoc}: ${documentResults.length}`);
     return documentResults;
   } catch (error) {
     console.error('Erro ao buscar usuários por documento:', error);
-    throw error;
+    // Retorna array vazio em vez de propagar o erro para não quebrar a UI
+    return [];
   }
+};
 };
 
 const firestoreService = {

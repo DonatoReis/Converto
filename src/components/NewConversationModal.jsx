@@ -717,17 +717,19 @@ const NewConversationModal = ({ isOpen, onClose, contacts, onSelectContact, onAd
             }
           }
           
-// Assign combined results
-foundResults = usersFound;
-setSearchMessage(`Usuário${usersFound.length > 1 ? 's' : ''} encontrado${usersFound.length > 1 ? 's' : ''} no app.`);
+// Append user results to foundResults (not overwrite)
+if (usersFound && usersFound.length > 0) {
+  console.log(`Found ${usersFound.length} users in global search`, usersFound);
+  foundResults = [...foundResults, ...usersFound];
+  setSearchMessage(`Usuário${usersFound.length > 1 ? 's' : ''} encontrado${usersFound.length > 1 ? 's' : ''} no app.`);
+}
           
           console.log('Users found:', usersFound);
           
-          if (usersFound.length > 0) {
-            foundResults = [...foundResults, ...usersFound];
-          }
-        } catch (error) {
-          console.error('Error searching users:', error);
+          console.log('Users found:', usersFound);
+          
+          // This is redundant since we already added the users to foundResults above
+          // Remove to avoid duplication of results
         }
       }
       
@@ -752,18 +754,44 @@ setSearchMessage(`Usuário${usersFound.length > 1 ? 's' : ''} encontrado${usersF
       setIsSearching(false);
     }
 
-    // Set results and finish (fallback if return above did not happen)
-    setSearchResults(foundResults);
-    
-    // Propagate results to the appropriate state variables for UI rendering
-    setFilteredContacts(foundResults.filter(r => r.source === 'contacts'));
-    setGlobalSearchResults(foundResults.filter(r => r.source === 'users'));
-    
-    // Special case: if there's exactly one global user, set it to foundGlobalUser
-    const globalUsers = foundResults.filter(r => r.source === 'users');
-    if (globalUsers.length === 1) {
-      setFoundGlobalUser(globalUsers[0]);
+    // Process and set results
+    if (foundResults && foundResults.length > 0) {
+      // Make sure all results have required fields with defaults
+      const processedResults = foundResults.map(result => {
+        if (!result) return null;
+        
+        return {
+          ...result,
+          // Ensure these fields exist with fallbacks for UI rendering
+          id: result.id || '',
+          source: result.source || 'unknown',
+          fullName: result.fullName || result.name || result.nome || 'Usuário',
+          name: result.name || result.fullName || result.nome || 'Usuário',
+          email: result.email || '',
+          phone: result.phone || result.telefone || '',
+          company: result.company || result.empresa || ''
+        };
+      }).filter(r => r !== null); // Remove any null items
+      
+      console.log('Processed search results:', processedResults);
+      setSearchResults(processedResults);
+      
+      // Propagate results to the appropriate state variables for UI rendering
+      setFilteredContacts(processedResults.filter(r => r.source === 'contacts'));
+      setGlobalSearchResults(processedResults.filter(r => r.source === 'users'));
+      
+      // Special case: if there's exactly one global user, set it to foundGlobalUser
+      const globalUsers = processedResults.filter(r => r.source === 'users');
+      if (globalUsers.length === 1) {
+        setFoundGlobalUser(globalUsers[0]);
+      } else {
+        setFoundGlobalUser(null);
+      }
     } else {
+      // Clear results if none found
+      setSearchResults([]);
+      setFilteredContacts([]);
+      setGlobalSearchResults([]);
       setFoundGlobalUser(null);
     }
     
@@ -936,6 +964,12 @@ const handleCreateContact = async (e) => {
   // Start a conversation with global user
   const handleStartConversationWithGlobalUser = async (user) => {
     try {
+      // Validate user
+      if (!user || !user.id) {
+        console.error('Dados de usuário inválidos:', user);
+        throw new Error('Dados de usuário inválidos ou incompletos');
+      }
+      
       // Get current user
       const auth = getAuth();
       const currentUser = auth.currentUser;
@@ -943,6 +977,8 @@ const handleCreateContact = async (e) => {
       if (!currentUser) {
         throw new Error('Você precisa estar logado para iniciar uma conversa');
       }
+      
+      console.log('Iniciando conversa entre usuários:', {currentUserId: currentUser.uid, targetUserId: user.id});
       
       // Create a conversation between current user and the found global user
       const conversation = await firestoreService.getOrCreateConversation([currentUser.uid, user.id]);
@@ -955,8 +991,8 @@ const handleCreateContact = async (e) => {
       );
       
       if (!existingContact) {
-        // Create a new contact based on the global user
-        const contactData = {
+              onClick={() => handleStartConversationWithGlobalUser(user || {})} 
+              className="w-full py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors flex items-center justify-center"
           fullName: user.fullName || user.nome || user.name || 'Usuário',
           name: user.fullName || user.nome || user.name || 'Usuário',
           email: user.email || '',
@@ -1522,6 +1558,9 @@ const handleCreateContact = async (e) => {
                       >
                         Criar Contato
                       </button>
+                    </div>
+                  </div>
+                </form>
             ) : (
                 <>
                   <div className="max-h-[60vh] overflow-y-auto">
@@ -1542,10 +1581,10 @@ const handleCreateContact = async (e) => {
                   </div>
                 </>
             )}
-          </div>     {/* close modal content */}
+          </div>
         </div>
-          </div>     {/* close modal content */}
-      )}           {/* close isOpen */}
+      </div>
+      )}
     </>
   );
 };
