@@ -1,0 +1,84 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Dependency directories
+node_modules
+jspm_packages/
+
+# Build outputs
+dist
+dist-ssr
+build/
+out/
+.output
+.nuxt
+.cache/
+.vite/
+
+# Environment files
+.env
+.env.*
+!.env.example
+*.local
+
+# Testing
+coverage/
+.nyc_output/
+.jest/
+__tests__/__coverage__/
+cypress/videos/
+cypress/screenshots/
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+.idea/
+*.sublime-project
+*.sublime-workspace
+.project
+.classpath
+*.iml
+*.ipr
+*.iws
+.DS_Store
+Thumbs.db
+desktop.ini
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Package manager locks
+# Uncomment if you're not using yarn/pnpm or if you want to ignore package-lock.json
+# package-lock.json
+# yarn.lock
+# .pnpm-lock.yaml
+
+# Generated files
+.eslintcache
+.stylelintcache
+.prettierignore
+tsconfig.tsbuildinfo
+
+# Debug
+.vercel
+.netlify
+firebase-debug.log*
+ui-debug.log*
+.firebase/
+
+# OS specific
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
