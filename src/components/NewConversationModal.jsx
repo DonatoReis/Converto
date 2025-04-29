@@ -815,6 +815,46 @@ const handleCreateContact = async (e) => {
     
     console.log('Sanitized contact data before sending to Firestore:', contactData);
     
+    // Verificação final para garantir que ownerId nunca seja null
+    if (!contactData.ownerId) {
+      const currentUser = getAuth().currentUser;
+      if (!currentUser || !currentUser.uid) {
+        showNotification('Você precisa estar logado para adicionar contatos', 'error');
+        return;
+      }
+      contactData.ownerId = currentUser.uid;
+    }
+    
+    // Garantir que o objeto address nunca seja null
+    if (!contactData.address) {
+      contactData.address = {
+        zipCode: '',
+        street: '',
+        number: '',
+        complement: '',
+        neighborhood: '',
+        city: '',
+        state: ''
+      };
+    }
+    
+    // Remover quaisquer propriedades nulas para evitar erros do Firestore
+    Object.keys(contactData).forEach(key => {
+      if (contactData[key] === null || contactData[key] === undefined) {
+        if (typeof contactData[key] === 'string') {
+          contactData[key] = '';
+        } else if (typeof contactData[key] === 'boolean') {
+          contactData[key] = false;
+        } else if (typeof contactData[key] === 'number') {
+          contactData[key] = 0;
+        } else if (Array.isArray(contactData[key])) {
+          contactData[key] = [];
+        } else if (typeof contactData[key] === 'object') {
+          contactData[key] = {};
+        }
+      }
+    });
+    
     // Add contact to database
     const addedContact = await Database.addContact(contactData);
     

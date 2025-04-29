@@ -314,13 +314,76 @@ const Database = {
    * @param {Object} contactData - Contact data
    * @returns {Promise<Object|null>} Added contact or null
    */
+  // Função utilitária recursiva para limpar valores nulos/undefined em objetos completos
+  _sanitizeFirestoreData: (obj) => {
+    // Caso base: se for null ou undefined, retornar um valor padrão apropriado
+    if (obj === null || obj === undefined) {
+      return '';
+    }
+    
+    // Se for um tipo primitivo, retornar diretamente
+    if (typeof obj !== 'object') {
+      return obj;
+    }
+    
+    // Se for um array, mapear e limpar cada elemento
+    if (Array.isArray(obj)) {
+      return obj.map(item => Database._sanitizeFirestoreData(item));
+    }
+    
+    // Se for um objeto, processar cada propriedade
+    const result = {};
+    for (const [key, value] of Object.entries(obj)) {
+      // Definir valor padrão com base no tipo esperado para campos comuns
+      if (value === null || value === undefined) {
+        switch (key) {
+          case 'ownerId':
+          case 'userId':
+          case 'name':
+          case 'email':
+          case 'phone':
+          case 'document':
+          case 'company':
+          case 'lastMessage':
+          case 'avatar':
+            result[key] = '';
+            break;
+          case 'status':
+            result[key] = 'offline';
+            break;
+          case 'address':
+            result[key] = {
+              street: '',
+              number: '',
+              city: '',
+              state: '',
+              zipCode: '',
+              neighborhood: '',
+              complement: ''
+            };
+            break;
+          default:
+            // Adotar uma abordagem conservadora: strings para chaves desconhecidas
+            result[key] = '';
+        }
+      } else if (typeof value === 'object') {
+        // Processar recursivamente objetos aninhados
+        result[key] = Database._sanitizeFirestoreData(value);
+      } else {
+        // Manter valores primitivos não-nulos inalterados
+        result[key] = value;
+      }
+    }
+    return result;
+  },
+  
   addContact: async (contactData) => {
     try {
       const auth = getAuth();
       const user = auth.currentUser;
       
-      if (!user) {
-        throw new Error('User must be authenticated to add a contact');
+      if (!user || !user.uid) {
+        throw new Error('User must be authenticated with valid UID to add a contact');
       }
       
       // Validate required fields
@@ -331,46 +394,67 @@ const Database = {
       // Create a clean object with only the fields we expect
       const contact = {
         name: contactData.name || '',
+        fullName: contactData.fullName || contactData.name || '',
         email: contactData.email || '',
         phone: contactData.phone ? contactData.phone.replace(/\D/g, '') : '', // Normalize phone
+        phoneRaw: contactData.phoneRaw || (contactData.phone ? contactData.phone.replace(/\D/g, '') : ''),
         company: contactData.company || '',
         document: contactData.document ? contactData.document.replace(/\D/g, '') : '', // Normalize document
-        ownerId: user.uid,
+        documentRaw: contactData.documentRaw || (contactData.document ? contactData.document.replace(/\D/g, '') : ''),
+        ownerId: user.uid, // Garantir que ownerId nunca seja null
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
         status: 'offline',
         avatar: contactData.avatar || '',
-        lastMessage: ''
+        lastMessage: '',
+        recado: contactData.recado || ''
       };
       
-      // Only add non-empty address fields if they exist
-      if (contactData.address) {
-        contact.address = {
-          street: contactData.address.street || '',
-          number: contactData.address.number || '',
-          city: contactData.address.city || '',
-          state: contactData.address.state || '',
-        };
-      }
+      // Adicionar endereço com todos os campos necessários
+      contact.address = {
+        street: contactData.address?.street || '',
+        number: contactData.address?.number || '',
+        city: contactData.address?.city || '',
+        state: contactData.address?.state || '',
+        zipCode: contactData.address?.zipCode || '',
+        neighborhood: contactData.address?.neighborhood || '',
+        complement: contactData.address?.complement || ''
+      };
       
       // Add userId if it's a reference to an app user
       if (contactData.userId) {
         contact.userId = contactData.userId;
       }
       
+      // Adicionar configurações de perfil com valores padrão seguros
+      contact.configuracoesPerfil = {
+        visibilidade: contactData.configuracoesPerfil?.visibilidade || 'publico',
+        notificacoes: typeof contactData.configuracoesPerfil?.notificacoes === 'boolean' 
+                       ? contactData.configuracoesPerfil.notificacoes 
+                       : true,
+        receberChamadas: typeof contactData.configuracoesPerfil?.receberChamadas === 'boolean'
+                        ? contactData.configuracoesPerfil.receberChamadas
+                        : true,
+        respostaAutomatica: contactData.configuracoesPerfil?.respostaAutomatica || ''
+      };
+      
       // Standardize the contact data to handle null values properly
       const sanitizedContact = standardizeContact(contact);
-      logDebug('Sanitized contact data before sending to Firestore:', sanitizedContact);
       
-      // Remove null or undefined fields to avoid Firestore internal assertion errors
-      const cleanedContact = Object.fromEntries(
-        Object.entries(sanitizedContact).filter(([_, v]) => v != null)
-      );
-      logDebug('Cleaned contact data before sending to Firestore:', cleanedContact);
+      // Aplicar limpeza profunda para garantir que nenhum valor seja null/undefined
+      const deepCleanedContact = Database._sanitizeFirestoreData(sanitizedContact);
+      
+      // Log para depuração
+      logDebug('Deeply cleaned contact data before sending to Firestore:', deepCleanedContact);
+      
+      // Verificação final para garantir que ownerId (crítico) está presente
+      if (!deepCleanedContact.ownerId) {
+        throw new Error('ownerId é obrigatório e não pode ser nulo');
+      }
       
       // Use the collection reference directly
       const contactsCollection = collection(firestore, 'contacts');
-      const docRef = await addDoc(contactsCollection, cleanedContact);
+      const docRef = await addDoc(contactsCollection, deepCleanedContact);
       
       // Return the contact with its new ID
       return {
@@ -513,13 +597,43 @@ const Database = {
    * @param {boolean} includeArchived - Whether to include archived conversations
    * @returns {Array} List of conversations
    */
-  getAllConversations: (includeArchived = false) => {
+  getAllConversations: async (includeArchived = false) => {
     try {
-      // This is a temporary implementation that returns an empty array
-      // to prevent errors. In a complete implementation, this would
-      // fetch conversations from Firestore.
-      logWarning('Using mock implementation of getAllConversations');
-      return [];
+      const auth = getAuth();
+      const user = auth.currentUser;
+      
+      // Verificação de segurança: garantir que o usuário está autenticado e possui um UID válido
+      if (!user || !user.uid) {
+        logWarning('Attempting to fetch conversations without authenticated user or user.uid is undefined');
+        return [];
+      }
+      
+      try {
+        // Construir uma query segura para evitar valores nulos
+        const q = query(
+          conversationsRef,
+          // Garantir que user.uid nunca seja null
+          where("participants", "array-contains", user.uid || ""),
+          // Filtro de arquivados com valor explícito para evitar nulls
+          where("isArchived", "==", includeArchived === true), 
+          orderBy("updatedAt", "desc")
+        );
+        
+        const querySnapshot = await getDocs(q);
+        return querySnapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        }));
+      } catch (queryError) {
+        logError('Error executing Firestore query for conversations', { 
+          uid: user.uid, 
+          includeArchived, 
+          error: queryError.message 
+        }, queryError);
+        
+        // Em caso de erro, retornar array vazio em vez de propagar o erro
+        return []; 
+      }
     } catch (error) {
       logError('Error getting conversations', { error: error.message }, error);
       return [];
