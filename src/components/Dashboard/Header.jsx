@@ -74,57 +74,6 @@ const Header = () => {
     return () => unsubscribe();
   }, [currentUser]);
   
-  // Load notifications from database
-  useEffect(() => {
-    const loadNotifications = async () => {
-      try {
-        // Get unread notifications from conversations
-        let conversations = [];
-        try {
-          conversations = await firestoreService.getAllConversations();
-        } catch (error) {
-          console.error('Error loading conversations:', error);
-          conversations = [];
-        }
-        
-        const unreadNotifications = [];
-        conversations.forEach(conversation => {
-          if (conversation.unreadCount && conversation.unreadCount > 0) {
-            // Find the last message in the conversation
-            const lastMessage = conversation.messages && conversation.messages.length > 0 
-              ? conversation.messages[conversation.messages.length - 1] 
-              : null;
-              
-            // Find the contact name from participants (exclude current user)
-            const contact = conversation.participants.find(p => 
-              p.id !== 'current_user' && p.id !== Database.getCurrentUser().id
-            );
-            
-            if (lastMessage && contact) {
-              unreadNotifications.push({
-                id: `notif_${conversation.id}`,
-                text: `Nova mensagem de ${contact.name}`,
-                time: lastMessage.time || 'agora',
-                conversationId: conversation.id
-              });
-            }
-          }
-        });
-        
-        setNotifications(unreadNotifications);
-      } catch (error) {
-        console.error('Error loading notifications:', error);
-      }
-    };
-    
-    // Load notifications initially
-    loadNotifications();
-    
-    // Set up interval to check for new notifications every 30 seconds
-    const intervalId = setInterval(loadNotifications, 30000);
-    
-    return () => clearInterval(intervalId);
-  }, []);
   
   // Handle clicks outside of menus
   useEffect(() => {

@@ -11,11 +11,26 @@ const TabNavigation = () => {
   useEffect(() => {
     // Função para calcular o número total de mensagens não lidas
     const getUnreadCount = () => {
-      const conversations = Database.getAllConversations();
-      const totalUnread = conversations.reduce((total, conversation) => {
-        return total + (conversation.unreadCount || 0);
-      }, 0);
-      setUnreadChatCount(totalUnread);
+      try {
+        // Safely get conversations and ensure it's an array
+        const conversations = Database.getAllConversations() || [];
+        
+        // Check if conversations is actually an array before using reduce
+        if (!Array.isArray(conversations)) {
+          console.error('Expected conversations to be an array, got:', typeof conversations);
+          setUnreadChatCount(0);
+          return;
+        }
+        
+        const totalUnread = conversations.reduce((total, conversation) => {
+          return total + (conversation?.unreadCount || 0);
+        }, 0);
+        
+        setUnreadChatCount(totalUnread);
+      } catch (error) {
+        console.error('Error calculating unread count:', error);
+        setUnreadChatCount(0); // Default to 0 on error
+      }
     };
 
     // Buscar contagem inicial

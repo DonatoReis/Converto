@@ -37,31 +37,47 @@ const DashboardScreen = () => {
   }, [showArchived]);
   
   const loadContacts = () => {
-    // Get all conversations (with or without archived based on state)
-    const conversations = Database.getAllConversations(showArchived);
-    
-    // Extract contacts from conversations
-    const contactsFromConversations = conversations
-      .filter(conv => showArchived ? conv.isArchived : !conv.isArchived) // Filter by archive status
-      .map(conv => {
-        // Find the contact in the participants (exclude current user)
-        const participant = conv.participants.find(p => p && p.id !== 'current_user' && p.id !== Database.getCurrentUser().id);
-        if (participant) {
-          return {
-            ...participant,
-            conversationId: conv.id,
-            lastMessage: conv.lastMessage ? conv.lastMessage.content : '',
-            time: conv.lastMessage ? conv.lastMessage.time : '',
-            unreadCount: conv.unreadCount || 0,
-            isArchived: conv.isArchived || false
-          };
-        }
-        return null;
-      })
-      .filter(Boolean); // Remove nulls
-    
-    setContacts(contactsFromConversations);
-    setFilteredContacts(contactsFromConversations);
+    try {
+      // Get all conversations (with or without archived based on state)
+      const allConversations = Database.getAllConversations(showArchived);
+      
+      // Safety check: ensure allConversations is an array
+      const conversations = Array.isArray(allConversations) ? allConversations : [];
+      
+      // Extract contacts from conversations
+      const contactsFromConversations = conversations
+        .filter(conv => conv && (showArchived ? conv.isArchived : !conv.isArchived)) // Filter by archive status
+        .map(conv => {
+          if (!conv || !Array.isArray(conv.participants)) {
+            return null; // Skip this conversation if it has no participants
+          }
+          
+          // Find the contact in the participants (exclude current user)
+          const currentUser = Database.getCurrentUser() || { id: 'current_user' };
+          const participant = conv.participants.find(p => p && p.id !== 'current_user' && p.id !== currentUser.id);
+          
+          if (participant) {
+            return {
+              ...participant,
+              conversationId: conv.id,
+              lastMessage: conv.lastMessage ? conv.lastMessage.content : '',
+              time: conv.lastMessage ? conv.lastMessage.time : '',
+              unreadCount: conv.unreadCount || 0,
+              isArchived: conv.isArchived || false
+            };
+          }
+          return null;
+        })
+        .filter(Boolean); // Remove nulls
+      
+      setContacts(contactsFromConversations);
+      setFilteredContacts(contactsFromConversations);
+    } catch (error) {
+      console.error('Error loading contacts:', error);
+      // Set empty arrays as a fallback
+      setContacts([]);
+      setFilteredContacts([]);
+    }
   };
   
   // Load messages when a contact is selected
@@ -276,7 +292,7 @@ const DashboardScreen = () => {
                     : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
               }`}
             >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8" />
               </svg>
               {showArchived ? 'Mostrar Ativas' : 'Mostrar Arquivadas'}

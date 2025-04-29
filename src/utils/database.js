@@ -1,6 +1,6 @@
 // src/utils/database.js
 import { v4 as uuidv4 } from 'uuid';
-import { logError, logInfo, logDebug, logWarning } from './logger';
+import { logError, logInfo, logDebug, logWarning, logFirestoreError } from './logger';
 import { standardizeMessage } from '../models/MessageModel';
 import { standardizeContact } from '../models/ContactModel';
 import { 
@@ -154,7 +154,7 @@ const Database = {
 
   /**
    * Gets all contacts for the current user
-   * @returns {Promise<Array>} List of contacts
+   * @returns {Promise<Array>} List of contacts */
   getAllContacts: async () => {
     try {
       const auth = getAuth();
@@ -218,6 +218,7 @@ const Database = {
    * Gets a contact by email
    * @param {string} email - Email to search for
    * @returns {Promise<Object|null>} Contact or null
+   */
   getContactByEmail: async (email) => {
     try {
       const auth = getAuth();
@@ -377,92 +378,91 @@ const Database = {
     return result;
   },
   
+  /**
+   * Adds a new contact
+   * @param {Object} contactData - Contact data
+   * @returns {Promise<Object|null>} Added contact or null
+   */
   addContact: async (contactData) => {
     try {
+      // Get current user
       const auth = getAuth();
       const user = auth.currentUser;
-      
+
       if (!user || !user.uid) {
-        throw new Error('User must be authenticated with valid UID to add a contact');
+        throw new Error('User must be authenticated to add contacts');
       }
-      
-      // Validate required fields
-      if (!contactData || !contactData.name) {
-        throw new Error('Contact name is required');
-      }
-      
-      // Create a clean object with only the fields we expect
-      const contact = {
-        name: contactData.name || '',
-        fullName: contactData.fullName || contactData.name || '',
-        email: contactData.email || '',
-        phone: contactData.phone ? contactData.phone.replace(/\D/g, '') : '', // Normalize phone
-        phoneRaw: contactData.phoneRaw || (contactData.phone ? contactData.phone.replace(/\D/g, '') : ''),
-        company: contactData.company || '',
-        document: contactData.document ? contactData.document.replace(/\D/g, '') : '', // Normalize document
-        documentRaw: contactData.documentRaw || (contactData.document ? contactData.document.replace(/\D/g, '') : ''),
-        ownerId: user.uid, // Garantir que ownerId nunca seja null
+
+      // Standardize and sanitize contact data
+      const standardizedContact = standardizeContact({
+        ...contactData,
+        ownerId: user.uid,
         createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-        status: 'offline',
-        avatar: contactData.avatar || '',
-        lastMessage: '',
-        recado: contactData.recado || ''
+        updatedAt: serverTimestamp()
+      });
+
+      // Deep clean the contact data to remove any null/undefined values
+      const deepCleanedContact = Database._sanitizeFirestoreData(standardizedContact);
+      
+      // Additional verification to ensure no nested null values remain
+      const finalCheck = (obj) => {
+        if (typeof obj !== 'object' || obj === null) return;
+        
+        if (Array.isArray(obj)) {
+          obj.forEach(item => finalCheck(item));
+          return;
+        }
+        
+        for (const key in obj) {
+          if (obj[key] === null || obj[key] === undefined) {
+            // Use _getDefaultValueForType for appropriate defaults
+            obj[key] = Database._getDefaultValueForType(key); 
+          } else if (typeof obj[key] === 'object') {
+            // Recursively check nested objects
+            finalCheck(obj[key]);
+          }
+        }
       };
       
-      // Adicionar endereço com todos os campos necessários
-      contact.address = {
-        street: contactData.address?.street || '',
-        number: contactData.address?.number || '',
-        city: contactData.address?.city || '',
-        state: contactData.address?.state || '',
-        zipCode: contactData.address?.zipCode || '',
-        neighborhood: contactData.address?.neighborhood || '',
-        complement: contactData.address?.complement || ''
-      };
+      finalCheck(deepCleanedContact);
       
-      // Add userId if it's a reference to an app user
-      if (contactData.userId) {
-        contact.userId = contactData.userId;
+      // Debug logging
+      logDebug('Sanitized contact data before sending to Firestore:', deepCleanedContact);
+      // Debug logging
+      logDebug('Sanitized contact data before sending to Firestore:', deepCleanedContact);
+      
+      // Final verification for all critical fields
+      const requiredFields = ['ownerId', 'name', 'email'];
+      const missingFields = requiredFields.filter(field => !deepCleanedContact[field]);
+      
+      if (missingFields.length > 0) {
+        throw new Error(`Campos obrigatórios não podem ser nulos: ${missingFields.join(', ')}`);
       }
       
-      // Adicionar configurações de perfil com valores padrão seguros
-      contact.configuracoesPerfil = {
-        visibilidade: contactData.configuracoesPerfil?.visibilidade || 'publico',
-        notificacoes: typeof contactData.configuracoesPerfil?.notificacoes === 'boolean' 
-                       ? contactData.configuracoesPerfil.notificacoes 
-                       : true,
-        receberChamadas: typeof contactData.configuracoesPerfil?.receberChamadas === 'boolean'
-                        ? contactData.configuracoesPerfil.receberChamadas
-                        : true,
-        respostaAutomatica: contactData.configuracoesPerfil?.respostaAutomatica || ''
-      };
+      // Convert any potential `undefined` values to empty strings to prevent Firestore errors
+      const safeContact = Object.entries(deepCleanedContact).reduce((acc, [key, value]) => {
+        acc[key] = value === undefined ? '' : value;
+        return acc;
+      }, {});
       
-      // Standardize the contact data to handle null values properly
-      const sanitizedContact = standardizeContact(contact);
-      
-      // Aplicar limpeza profunda para garantir que nenhum valor seja null/undefined
-      const deepCleanedContact = Database._sanitizeFirestoreData(sanitizedContact);
-      
-      // Log para depuração
-      logDebug('Deeply cleaned contact data before sending to Firestore:', deepCleanedContact);
-      
-      // Verificação final para garantir que ownerId (crítico) está presente
-      if (!deepCleanedContact.ownerId) {
-        throw new Error('ownerId é obrigatório e não pode ser nulo');
+      try {
+        // Log the exact data being sent to Firestore
+        logDebug('Final contact data being sent to Firestore:', JSON.stringify(safeContact));
+        
+        // Add to Firestore
+        const docRef = await addDoc(collection(firestore, 'contacts'), safeContact);
+        
+        return {
+          id: docRef.id,
+          ...safeContact,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        };
+      } catch (firestoreError) {
+        // Use enhanced error logging for Firestore-specific errors
+        logFirestoreError('Error adding contact to Firestore', safeContact, firestoreError);
+        throw firestoreError;
       }
-      
-      // Use the collection reference directly
-      const contactsCollection = collection(firestore, 'contacts');
-      const docRef = await addDoc(contactsCollection, deepCleanedContact);
-      
-      // Return the contact with its new ID
-      return {
-        id: docRef.id,
-        ...contact,
-        createdAt: new Date(),
-        updatedAt: new Date()
-      };
     } catch (error) {
       logError('Error adding contact', { error: error.message }, error);
       throw error;
@@ -609,13 +609,20 @@ const Database = {
       }
       
       try {
+        // Ensure user.uid is defined - should never reach here due to earlier check, but add extra safety
+        const userId = user.uid || "";
+        if (!userId.trim()) {
+          logWarning('Empty user ID in getAllConversations after guard check');
+          return [];
+        }
+        
         // Construir uma query segura para evitar valores nulos
         const q = query(
           conversationsRef,
-          // Garantir que user.uid nunca seja null
-          where("participants", "array-contains", user.uid || ""),
-          // Filtro de arquivados com valor explícito para evitar nulls
-          where("isArchived", "==", includeArchived === true), 
+          // Garantir que user.uid nunca seja null - use a defined string with actual content
+          where("participants", "array-contains", userId),
+          // Filtro de arquivados com valor explícito para evitar nulls - use explicit boolean 
+          where("isArchived", "==", Boolean(includeArchived)), 
           orderBy("updatedAt", "desc")
         );
         
@@ -697,150 +704,95 @@ const Database = {
   },
 
   // ==================== USER SETTINGS ====================
-
   /**
-   * Gets user settings
-   * @param {string} userId - User ID (optional, defaults to current user)
-   * @returns {Object} User settings
+   * Helper function to get the appropriate default value for a field based on field key and expected type
+   * @param {string} fieldKey - The field key/name
+   * @param {*} inferredType - The inferred type or sample value to derive type
+   * @returns {*} The appropriate default value
+   * @private
    */
-  getUserSettings: async (userId = null) => {
-    try {
-      const auth = getAuth();
-      const currentUser = auth.currentUser;
+  _getDefaultValueForType: (fieldKey, inferredType = null) => {
+    // Known field-specific defaults based on field name
+    switch (fieldKey) {
+      // User and contact fields
+      case 'ownerId':
+      case 'userId':
+      case 'name':
+      case 'fullName':
+      case 'email':
+      case 'phone':
+      case 'phoneRaw':
+      case 'document':
+      case 'documentRaw':
+      case 'documentType':
+      case 'company':
+      case 'lastMessage':
+      case 'avatar':
+        return '';
       
-      // Use provided userId or current user id
-      const uid = userId || (currentUser ? currentUser.uid : null);
+      // Boolean fields
+      case 'isFavorite':
+      case 'isArchived':
+      case 'isBlocked':
+      case 'isMuted':
+      case 'isPinned':
+        return false;
       
-      if (!uid) {
-        logWarning('Attempting to fetch user settings without a user ID');
-        return { theme: 'light', language: 'pt-BR', notifications: true, encryption: { enabled: false } };
-      }
+      // Numeric fields
+      case 'unreadCount':
+        return 0;
       
-      // Try to get user document which should contain settings
-      const userRef = doc(usersRef, uid);
-      const userDoc = await getDoc(userRef);
+      // Special status field
+      case 'status':
+        return 'offline';
       
-      if (userDoc.exists() && userDoc.data().settings) {
-        return userDoc.data().settings;
-      }
+      // Known nested objects with their specific defaults
+      case 'address':
+        return {
+          street: '',
+          number: '',
+          city: '',
+          state: '',
+          zipCode: '',
+          neighborhood: '',
+          complement: ''
+        };
       
-      // Return default settings if none exist
-      return { theme: 'light', language: 'pt-BR', notifications: true, encryption: { enabled: false } };
-    } catch (error) {
-      logError('Error getting user settings', { userId, error: error.message }, error);
-      // Return default settings on error
-      return { theme: 'light', language: 'pt-BR', notifications: true, encryption: { enabled: false } };
+      // Arrays
+      case 'mediaAttachments':
+      case 'readBy':
+      case 'participants':
+      case 'tags':
+        return [];
+      
+      // For unknown fields, infer type from the provided sample/context
+      default:
+        if (inferredType === null) {
+          // Default to empty string if no type information available
+          return '';
+        }
+        
+        // Infer type from the sample value
+        const inferredTypeName = typeof inferredType;
+        
+        switch (inferredTypeName) {
+          case 'string':
+            return '';
+          case 'number':
+            return 0;
+          case 'boolean':
+            return false;
+          case 'object':
+            if (Array.isArray(inferredType)) {
+              return [];
+            }
+            return {};
+          default:
+            return '';
+        }
     }
   },
 
-  /**
-   * Updates user settings
-   * @param {Object} settings - Settings to update
-   * @param {string} userId - User ID (optional, defaults to current user)
-   * @returns {boolean} Success indicator
-   */
-  updateUserSettings: async (settings, userId = null) => {
-    try {
-      const auth = getAuth();
-      const currentUser = auth.currentUser;
-      
-      // Use provided userId or current user id
-      const uid = userId || (currentUser ? currentUser.uid : null);
-      
-      if (!uid) {
-        throw new Error('User must be authenticated to update settings');
-      }
-      
-      // Update settings in user document
-      const userRef = doc(usersRef, uid);
-      await updateDoc(userRef, { 
-        settings,
-        updatedAt: serverTimestamp()
-      });
-      
-      return true;
-    } catch (error) {
-      logError('Error updating user settings', { settings, userId, error: error.message }, error);
-      return false;
-    }
-  },
-
-  // ==================== ENCRYPTION KEY MANAGEMENT ====================
-
-  /**
-   * Updates or stores a user's public key for Signal Protocol end-to-end encryption
-   * @param {string} userId - User ID
-   * @param {Object} keyData - Public key data (identityKey, registrationId, preKeys, signedPreKey)
-   * @returns {Promise<Object|null>} Updated key data or null on error
-   */
-  updateUserPublicKey: async (userId, keyData) => {
-    try {
-      // Add null check for userId
-      if (!userId) {
-        logWarning('Attempt to update public key with null or undefined userId');
-        return null;
-      }
-      
-      // Add null check for keyData
-      if (!keyData) {
-        logWarning('Attempt to update public key with null or undefined keyData');
-        return null;
-      }
-      
-      // Validate required fields
-      if (!keyData.identityKey || !keyData.registrationId || !keyData.preKeys || !keyData.signedPreKey) {
-        logWarning('Missing required fields in keyData for updateUserPublicKey', { 
-          hasIdentityKey: !!keyData.identityKey,
-          hasRegistrationId: !!keyData.registrationId,
-          hasPreKeys: !!keyData.preKeys,
-          hasSignedPreKey: !!keyData.signedPreKey
-        });
-        return null;
-      }
-      
-      const userRef = doc(usersRef, userId);
-      
-      // Store public key data in a signalKeys field
-      await updateDoc(userRef, {
-        signalKeys: keyData,
-        encryptionEnabled: true,
-        updatedAt: serverTimestamp()
-      });
-      
-      logInfo('Updated user public key', { userId });
-      
-      return keyData;
-    } catch (error) {
-      logError('Error updating user public key', { userId, error: error.message }, error);
-      return null;
-    }
-  },
-  
-  /**
-   * Gets a user's public key for Signal Protocol end-to-end encryption
-   * @param {string} userId - User ID
-   * @returns {Promise<Object|null>} Public key data or null if not found
-   */
-  getUserPublicKey: async (userId) => {
-    try {
-      // Add null check for userId
-      if (!userId) {
-        logWarning('Attempt to get public key with null or undefined userId');
-        return null;
-      }
-      
-      const userDoc = await getDoc(doc(usersRef, userId));
-      if (userDoc.exists() && userDoc.data().signalKeys) {
-        return userDoc.data().signalKeys;
-      }
-      
-      logWarning('No public key found for user', { userId });
-      return null;
-    } catch (error) {
-      logError('Error getting user public key', { userId, error: error.message }, error);
-      return null;
-    }
-  }
 };
 
 export default Database;

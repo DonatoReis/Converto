@@ -1,1 +1,0 @@
-The error in the handleCEPChange function is caused by a missing catch or finally clause for the try block starting at line 351. Looking at the code, there appears to be an extra closing brace at line 369 that's causing the try block to be malformed.

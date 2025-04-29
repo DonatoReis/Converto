@@ -16,6 +16,8 @@ import {
   onSnapshot,
   serverTimestamp,
   writeBatch,
+  runTransaction,
+  increment,
 } from "firebase/firestore";
 import {
   getAuth,
@@ -194,6 +196,10 @@ export const getAllContacts = async (userId) => {
  * @returns {Function} Função para cancelar a inscrição
  */
 export const subscribeToContacts = (userId, callback) => {
+  if (userId == null) {
+    console.warn("subscribeToContacts chamado com userId nulo; ignorando listener");
+    return () => {};
+  }
   try {
     const contactsRef = collection(firestore, "contacts");
     const q = query(
@@ -227,11 +233,14 @@ export const subscribeToContacts = (userId, callback) => {
  * @returns {Promise<Object>} Contato adicionado
  */
 export const addContact = async (contactData) => {
+  if (!contactData || contactData.ownerId == null) {
+    throw new Error("Campo ownerId é obrigatório e não pode ser null/undefined");
+  }
   try {
-    // Verificar se contactData existe
-    if (!contactData) {
-      throw new Error("Dados do contato são obrigatórios");
-    }
+    // Se ainda quiser lançar aqui:
+    // if (algumaOutraCondição) {
+    //   throw new Error("Dados do contato são obrigatórios");
+    // }
 
     // Padronizar os dados do contato usando a função do ContactModel
     const sanitizedData = standardizeContact(contactData);
@@ -396,64 +405,54 @@ export const subscribeToConversations = (
  * @param {Array<string>} participantIds IDs dos participantes
  * @returns {Promise<Object>} Conversa
  */
-export const getOrCreateConversation = async (participantIds) => {
-  try {
-    // Obter conversas existentes com estes participantes
-    const conversationsRef = collection(firestore, "conversations");
-
-    // Verifica se já existe conversa com exatamente estes participantes
-    // Nota: Esta consulta é uma simplificação. Para precisão completa,
-    // seria necessário usar transações e lógica adicional para verificar
-    // a correspondência exata de arrays.
-    const q = query(
-      conversationsRef,
-      where("participants", "array-contains", participantIds[0]),
-    );
-
-    const querySnapshot = await getDocs(q);
-
-    // Procura por uma conversa com exatamente os mesmos participantes
-    const existingConversation = querySnapshot.docs.find((doc) => {
-      const data = doc.data();
-      return (
-        data.participants.length === participantIds.length &&
-        participantIds.every((id) => data.participants.includes(id))
-      );
-    });
-
-    if (existingConversation) {
-      return {
-        id: existingConversation.id,
-        ...existingConversation.data(),
-      };
+  export const getOrCreateConversation = async (participantIds) => {
+    try {
+      const conversationsRef = collection(firestore, "conversations");
+      return await runTransaction(firestore, async (transaction) => {
+        // Query para conversas contendo o primeiro participante
+        const q = query(
+          conversationsRef,
+          where("participants", "array-contains", participantIds[0])
+        );
+        const snapshot = await transaction.get(q);
+        // Verifica correspondência exata de participantes
+        const existingDoc = snapshot.docs.find((doc) => {
+          const data = doc.data();
+          return (
+            data.participants.length === participantIds.length &&
+            participantIds.every((id) => data.participants.includes(id))
+          );
+        });
+        if (existingDoc) {
+          const data = existingDoc.data();
+          return { id: existingDoc.id, ...data };
+        }
+        // Cria nova conversa de forma atômica
+        const newConvRef = doc(conversationsRef);
+        const newConversation = {
+          participants: participantIds,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+          lastMessage: null,
+          unreadCount: 0,
+          isPinned: false,
+          isMuted: false,
+          isArchived: false,
+        };
+        transaction.set(newConvRef, newConversation);
+        // Retorna conversa recém-criada com timestamps locais
+        return {
+          id: newConvRef.id,
+          ...newConversation,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+      });
+    } catch (error) {
+      console.error("Erro ao obter/criar conversa:", error);
+      throw error;
     }
-
-    // Cria nova conversa se não existir
-    const newConversation = {
-      participants: participantIds,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-      lastMessage: null,
-      unreadCount: 0,
-      isPinned: false,
-      isMuted: false,
-      isArchived: false,
-    };
-
-    const docRef = await addDoc(conversationsRef, newConversation);
-
-    return {
-      id: docRef.id,
-      ...newConversation,
-      // Ajustando timestamps para uso imediato no cliente
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
-  } catch (error) {
-    console.error("Erro ao obter/criar conversa:", error);
-    throw error;
-  }
-};
+  };
 
 /**
  * Atualiza os dados de uma conversa
@@ -668,8 +667,8 @@ export const sendMessage = async (conversationId, senderId, content) => {
     await updateDoc(conversationRef, {
       lastMessage: messageRef.id,
       updatedAt: serverTimestamp(),
-      // Incrementar contador de não lidas apenas para mensagens não enviadas pelo usuário atual
-      unreadCount: 1, // Isso seria incrementado com lógica mais complexa em produção
+      // Incrementar contador de não lidas de forma segura para múltiplas leituras simultâneas
+      unreadCount: increment(1),
     });
 
     // Retornar a mensagem enviada com ID
@@ -1173,8 +1172,6 @@ export const searchUsersByDocument = async (document) => {
     return [];
   }
 };
-
-// Definir o objeto firestoreService com todas as funções exportadas
 const firestoreService = {
   // Usuários
   getUser,

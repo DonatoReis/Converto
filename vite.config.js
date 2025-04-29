@@ -63,11 +63,11 @@ export default defineConfig({
       'libsignal-protocol',
       'bytebuffer',
       'long',
-      'react-dom/client',
       'react-router-dom'
     ],
     include: [
-      'set-cookie-parser-es'
+      'set-cookie-parser-es',
+      'react-dom/client'
     ]
   },
   

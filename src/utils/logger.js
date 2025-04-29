@@ -104,10 +104,93 @@ export const logError = (message, data = {}, error = null) => {
   return log(LogLevel.ERROR, message, data, error);
 };
 
+/**
+ * Enhanced error logging utility for Firestore errors
+ * 
+ * @param {string} message - Log message
+ * @param {Object} [data] - The data being sent to Firestore that caused the error
+ * @param {Error} [error] - Firestore error object
+ */
+export const logFirestoreError = (message, data, error = null) => {
+  console.group("🔥 FIRESTORE ERROR DETAILS 🔥");
+  console.error(`${message}`);
+  
+  // Log the original error
+  console.error("Original error:", error);
+  
+  // Extract Firestore error details if available
+  if (error && error.message && error.message.includes("FIRESTORE")) {
+    try {
+      // Extract the JSON context part if it exists
+      const contextMatch = error.message.match(/CONTEXT: ({.*})/);
+      if (contextMatch && contextMatch[1]) {
+        const contextData = JSON.parse(contextMatch[1]);
+        console.error("Firestore error context:", contextData);
+        
+        // Extract the nested error message
+        if (contextData.ec && typeof contextData.ec === 'string') {
+          console.error("Nested error:", contextData.ec);
+        }
+      }
+    } catch (parseError) {
+      console.error("Failed to parse Firestore error context", parseError);
+    }
+  }
+  
+  // Deep inspection of the data being sent to Firestore
+  if (data) {
+    console.group("Data inspection:");
+    
+    // Function to inspect object for null/undefined values
+    const inspectObject = (obj, path = '') => {
+      if (obj === null) {
+        console.warn(`⚠️ NULL VALUE at path: ${path || 'root'}`);
+        return;
+      }
+      
+      if (obj === undefined) {
+        console.warn(`⚠️ UNDEFINED VALUE at path: ${path || 'root'}`);
+        return;
+      }
+      
+      if (typeof obj !== 'object') return;
+      
+      if (Array.isArray(obj)) {
+        obj.forEach((item, index) => {
+          inspectObject(item, `${path}[${index}]`);
+        });
+        return;
+      }
+      
+      Object.entries(obj).forEach(([key, value]) => {
+        const newPath = path ? `${path}.${key}` : key;
+        
+        if (value === null) {
+          console.warn(`⚠️ NULL VALUE at path: ${newPath}`);
+        } else if (value === undefined) {
+          console.warn(`⚠️ UNDEFINED VALUE at path: ${newPath}`);
+        } else if (typeof value === 'object') {
+          inspectObject(value, newPath);
+        }
+      });
+    };
+    
+    // Deep inspection of data being sent to Firestore
+    inspectObject(data);
+    console.groupEnd();
+  }
+  
+  console.groupEnd();
+  
+  // Also log to the regular error log system
+  return log(LogLevel.ERROR, message, { error: error?.message || 'Firestore error' }, error);
+};
+
 export default {
   logDebug,
   logInfo,
   logWarning,
-  logError
+  logError,
+  logFirestoreError
 };
 
