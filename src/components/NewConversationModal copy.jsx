@@ -1,88 +1,9 @@
 // src/components/NewConversationModal.jsx
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { getAuth } from 'firebase/auth';
-import { collection, query, where, getDocs } from 'firebase/firestore';
-import { firestore } from '../firebase/config';
-import firestoreService from '../firebase/firestoreService';
 import Database from '../utils/database';
-
-// Helper functions for search
-async function searchContactsLocal(currentUserId, normalizedTerm, phoneSearch, documentSearch) {
-  const contactsCollection = collection(firestore, 'contacts');
-  const results = [];
-  // Buscar por email
-  if (normalizedTerm.includes('@')) {
-    const q = query(contactsCollection, where('ownerId', '==', currentUserId), where('email', '==', normalizedTerm));
-    const snap = await getDocs(q);
-    results.push(...snap.docs.map(doc => ({ id: doc.id, ...doc.data(), source: 'contacts' })));
-  }
-  // Buscar por telefone
-  if (phoneSearch.length >= 8) {
-    const q = query(contactsCollection, where('ownerId', '==', currentUserId), where('phoneRaw', '==', phoneSearch));
-    const snap = await getDocs(q);
-    results.push(...snap.docs.map(doc => ({ id: doc.id, ...doc.data(), source: 'contacts' })));
-  }
-  // Buscar por documento
-  if (documentSearch.length >= 11) {
-    const q = query(contactsCollection, where('ownerId', '==', currentUserId), where('documentRaw', '==', documentSearch));
-    const snap = await getDocs(q);
-    results.push(...snap.docs.map(doc => ({ id: doc.id, ...doc.data(), source: 'contacts' })));
-  }
-  // Buscar por nome (contém)
-  const qAll = query(contactsCollection, where('ownerId', '==', currentUserId));
-  const allSnap = await getDocs(qAll);
-  const nameHits = allSnap.docs.filter(doc => {
-    const data = doc.data();
-    const name = (data.fullName || data.name || '').toLowerCase();
-    return name.includes(normalizedTerm);
-  }).map(doc => ({ id: doc.id, ...doc.data(), source: 'contacts' }));
-  // Evitar duplicatas
-  const ids = new Set(results.map(r => r.id));
-  nameHits.forEach(hit => { if (!ids.has(hit.id)) results.push(hit); });
-  return results;
-}
-
-async function searchUsersGlobal(normalizedTerm, phoneSearch, documentSearch) {
-  const usersCollection = collection(firestore, 'users');
-  const results = [];
-  // Email
-  if (normalizedTerm.includes('@')) {
-    for (const field of ['email', 'userEmail', 'emailAddress']) {
-      try {
-        const q = query(usersCollection, where(field, '==', normalizedTerm));
-        const snap = await getDocs(q);
-        results.push(...snap.docs.map(doc => ({ id: doc.id, ...doc.data(), source: 'users' })));
-      } catch {}
-    }
-  }
-  // Telefone
-  if (phoneSearch.length >= 8) {
-    for (const field of ['phoneRaw', 'phone', 'phoneNumber', 'userPhone', 'mobile']) {
-      try {
-        const q = query(usersCollection, where(field, '==', phoneSearch));
-        const snap = await getDocs(q);
-        results.push(...snap.docs.map(doc => ({ id: doc.id, ...doc.data(), source: 'users' })));
-      } catch {}
-    }
-  }
-  // Documento
-  if (documentSearch.length >= 11) {
-    for (const field of ['document', 'documentRaw', 'cpfCnpj', 'cpf', 'cnpj']) {
-      try {
-        const q = query(usersCollection, where(field, '==', documentSearch));
-        const snap = await getDocs(q);
-        results.push(...snap.docs.map(doc => ({ id: doc.id, ...doc.data(), source: 'users' })));
-      } catch {}
-    }
-  }
-  // Evitar duplicatas
-  const unique = [];
-  const ids = new Set();
-  for (const item of results) {
-    if (!ids.has(item.id)) { ids.add(item.id); unique.push(item); }
-  }
-  return unique;
-}
+import { collection, query, where, getDocs, doc, getDoc } from 'firebase/firestore';
+import { firestore } from '../firebase/config';
+import { getAuth } from 'firebase/auth';
 // Import debounce from lodash if available
 // import { debounce } from 'lodash';
 
@@ -100,6 +21,7 @@ import { fetchAddressByCEP, formatCEP } from '../utils/addressLookup';
 import { getScore } from '../utils/serasaScore';
 import SerasaScoreCard from './SerasaScoreCard';
 import { useTheme } from '../context/ThemeContext';
+import firestoreService from '../firebase/firestoreService';
 
 const NewConversationModal = ({ isOpen, onClose, contacts, onSelectContact, onAddNewContact }) => {
   console.log('=== NewConversationModal rendered ===');
@@ -449,10 +371,10 @@ const NewConversationModal = ({ isOpen, onClose, contacts, onSelectContact, onAd
             ...prev,
             address: {
               ...prev.address,
-              street: addressData.street || prev.address.street,
-              neighborhood: addressData.neighborhood || prev.address.neighborhood,
-              city: addressData.city || prev.address.city,
-              state: addressData.state || prev.address.state,
+              street: addressData.logradouro || prev.address.street,
+              neighborhood: addressData.bairro || prev.address.neighborhood,
+              city: addressData.localidade || prev.address.city,
+              state: addressData.uf || prev.address.state,
               // Keep the formatted CEP
               zipCode: formattedCEP
             }
@@ -523,125 +445,6 @@ const NewConversationModal = ({ isOpen, onClose, contacts, onSelectContact, onAd
     debouncedSearch(value);
   };
   
-  // Complete implementation of the search function (used from lines 480-488)
-  const handleSearch = async (term) => {
-    // Reset search state
-    setIsSearching(true);
-    setSearchError(null);
-    setSearchResults([]);
-    setFilteredContacts([]);
-    setGlobalSearchResults([]);
-    setShowAddManually(false);
-    
-    try {
-      // Basic validation
-      if (!term || term.length < 3) {
-        setIsSearching(false);
-        return;
-      }
-      
-      // Get current user
-      const authObj = getAuth();
-      const user = authObj.currentUser;
-      if (!user) {
-        throw new Error('Login necessário');
-      }
-      
-      // Normalize search term for consistency
-      const normalizedTerm = term.toLowerCase().trim();
-      const phoneSearch = normalizePhone(normalizedTerm);
-      const documentSearch = normalizeDocument(normalizedTerm);
-      
-      let foundResults = [];
-      
-      // STEP 1: Search in user's contacts
-      try {
-        // First search in contacts collection filtered by ownerId
-        const contactsFromFirestore = await firestoreService.searchContacts(user.uid, normalizedTerm);
-        
-        if (contactsFromFirestore && contactsFromFirestore.length > 0) {
-          foundResults = contactsFromFirestore.map(contact => ({
-            ...contact,
-            source: 'contacts'
-          }));
-          setSearchMessage(`${contactsFromFirestore.length} contato(s) encontrado(s)`);
-        }
-      } catch (contactError) {
-        console.error('Error searching contacts:', contactError);
-        // Continue to Step 2 even if Step 1 fails
-      }
-      
-      // STEP 2: Search in global users collection if no contacts were found
-      if (foundResults.length === 0) {
-        try {
-          // Try searching by email first if it looks like an email
-          if (normalizedTerm.includes('@')) {
-            const emailResults = await firestoreService.searchUsersByEmail(normalizedTerm);
-            if (emailResults && emailResults.length > 0) {
-              foundResults = [...foundResults, ...emailResults];
-              setSearchMessage(`${emailResults.length} usuário(s) encontrado(s) por email`);
-            }
-          }
-          
-          // Try searching by phone if it looks like a phone number
-          if (foundResults.length === 0 && phoneSearch.length >= 8) {
-            const phoneResults = await firestoreService.searchUsersByPhone(phoneSearch);
-            if (phoneResults && phoneResults.length > 0) {
-              foundResults = [...foundResults, ...phoneResults];
-              setSearchMessage(`${phoneResults.length} usuário(s) encontrado(s) por telefone`);
-            }
-          }
-          
-          // Try searching by document if it looks like a document
-          if (foundResults.length === 0 && documentSearch.length >= 11) {
-            const documentResults = await firestoreService.searchUsersByDocument(documentSearch);
-            if (documentResults && documentResults.length > 0) {
-              foundResults = [...foundResults, ...documentResults];
-              setSearchMessage(`${documentResults.length} usuário(s) encontrado(s) por documento`);
-            }
-          }
-        } catch (globalSearchError) {
-          console.error('Error searching global users:', globalSearchError);
-          setSearchError('Erro ao buscar usuários globais');
-        }
-      }
-      
-      // Show "Add manually" option if no results
-      if (foundResults.length === 0) {
-        setShowAddManually(true);
-        setSearchMessage('Nenhum resultado encontrado');
-      }
-      
-      // Process results and update state
-      const processedResults = foundResults.map(result => ({
-        id: result.id || '',
-        source: result.source || 'unknown',
-        fullName: result.fullName || result.name || result.nome || 'Usuário',
-        name: result.name || result.fullName || result.nome || '',
-        email: result.email || '',
-        phone: result.phone || result.telefone || '',
-        company: result.company || result.empresa || ''
-      }));
-      
-      setSearchResults(processedResults);
-      setFilteredContacts(processedResults.filter(r => r.source === 'contacts'));
-      setGlobalSearchResults(processedResults.filter(r => r.source === 'users'));
-      
-      // Set foundGlobalUser if exactly one global user is found
-      const globalUsers = processedResults.filter(r => r.source === 'users');
-      if (globalUsers.length === 1) {
-        setFoundGlobalUser(globalUsers[0]);
-      } else {
-        setFoundGlobalUser(null);
-      }
-    } catch (error) {
-      console.error('Unexpected error during search:', error);
-      setSearchError(error.message || 'Ocorreu um erro inesperado');
-    } finally {
-      setIsSearching(false);
-    }
-  };
-  
   // Normalize phone number to digits only (for search)
   const normalizePhone = (phone) => {
     if (!phone) return '';
@@ -670,6 +473,345 @@ const NewConversationModal = ({ isOpen, onClose, contacts, onSelectContact, onAd
    * - Index on contacts collection: (ownerId, phoneRaw)
    * - Index on contacts collection: (ownerId, documentRaw)
    */
+  // Function to handle the search process
+  const handleSearch = async (searchTerm) => {
+    // Initialize search state
+    setIsSearching(true);
+    setSearchResults([]);
+    setGlobalSearchResults([]);
+    setFilteredContacts([]);
+    setSearchError(null);
+    setShowAddManually(false);
+    
+    console.log('Starting search for:', searchTerm);
+    
+    // MAIN TRY-CATCH-FINALLY BLOCK
+    try {
+      // Early return if search term is too short
+      if (!searchTerm || searchTerm.length < 3) {
+        setIsSearching(false);
+        return;
+      }
+      
+      // Get current user
+      const auth = getAuth();
+      const currentUser = auth.currentUser;
+      
+      if (!currentUser) {
+        throw new Error('You must be logged in to search for contacts');
+      }
+      
+      // Normalize search term for consistency (lowercase, no spaces)
+      const normalizedTerm = searchTerm.toLowerCase().trim();
+      
+      // Normalize phone number if it looks like a phone number
+      let phoneSearch = normalizePhone(normalizedTerm);
+      
+      // Normalize document if it looks like a CPF/CNPJ
+      let documentSearch = normalizeDocument(normalizedTerm);
+      
+      // Debug log the normalized values for troubleshooting
+      if (phoneSearch.length >= 8) {
+        console.log('Normalized phone search term:', phoneSearch);
+      }
+      
+      if (documentSearch.length >= 11) {
+        console.log('Normalized document search term:', documentSearch);
+      }
+      
+      // Will store all search results from both steps
+      let foundResults = [];
+      
+      // ===================================================================
+      // STEP 1: First search user's contacts collection (filtered by ownerId)
+      // ===================================================================
+      console.log('STEP 1: Searching user contacts collection');
+      
+      try {
+        const contactsCollection = collection(firestore, 'contacts');
+        
+        // We'll collect results from multiple queries
+        let contactsFound = [];
+        
+        // Search by email (exact match)
+        if (normalizedTerm.includes('@')) {
+          console.log('Searching contacts by email:', normalizedTerm);
+          const emailQuery = query(
+            contactsCollection,
+            where('ownerId', '==', currentUser.uid),
+            where('email', '==', normalizedTerm)
+          );
+          const emailResults = await getDocs(emailQuery);
+          contactsFound = [...contactsFound, ...emailResults.docs.map(doc => ({ id: doc.id, ...doc.data(), source: 'contacts' }))];
+        }
+        
+        // Search by phone number (if it seems to be a phone number)
+        if (phoneSearch.length >= 8) {
+          console.log('Searching contacts by phone:', phoneSearch);
+          // Query using the raw phone field for more accurate matches
+          const phoneQuery = query(
+            contactsCollection,
+            where('ownerId', '==', currentUser.uid),
+            where('phoneRaw', '==', phoneSearch)
+          );
+          const phoneResults = await getDocs(phoneQuery);
+          console.log(`Phone search results count: ${phoneResults.docs.length}`);
+          
+          contactsFound = [...contactsFound, ...phoneResults.docs.map(doc => ({ id: doc.id, ...doc.data(), source: 'contacts' }))];
+        }
+        
+        // Search by document (CPF/CNPJ) if it looks like a document number
+        if (documentSearch.length >= 11) {
+          console.log('Searching contacts by document:', documentSearch);
+          // Query using the raw document field for more accurate matches
+          const documentQuery = query(
+            contactsCollection,
+            where('ownerId', '==', currentUser.uid),
+            where('documentRaw', '==', documentSearch)
+          );
+          const documentResults = await getDocs(documentQuery);
+          console.log(`Document search results count: ${documentResults.docs.length}`);
+          
+          contactsFound = [...contactsFound, ...documentResults.docs.map(doc => ({ id: doc.id, ...doc.data(), source: 'contacts' }))];
+        }
+        
+        // Search by name (contains match)
+        // We need to fetch all contacts first for this type of search
+        const allContactsQuery = query(
+          contactsCollection,
+          where('ownerId', '==', currentUser.uid)
+        );
+        const allContactsSnap = await getDocs(allContactsQuery);
+        
+        // Filter contacts that contain the search term in their name
+        const nameResults = allContactsSnap.docs
+          .filter(doc => {
+            const data = doc.data();
+            // Use fullName with fallback to name for backward compatibility
+            const displayName = data.fullName || data.name || '';
+            return displayName.toLowerCase().includes(normalizedTerm);
+          })
+          .map(doc => ({ id: doc.id, ...doc.data(), source: 'contacts' }));
+        
+        // Add name results, avoiding duplicates
+        const existingIds = new Set(contactsFound.map(c => c.id));
+        nameResults.forEach(contact => {
+          if (!existingIds.has(contact.id)) {
+            contactsFound.push(contact);
+            existingIds.add(contact.id);
+          }
+        });
+        
+        // Log what we found
+        console.log('Found in contacts:', contactsFound);
+        
+        if (contactsFound.length > 0) {
+          foundResults = contactsFound;
+          setSearchMessage(`Contato${contactsFound.length > 1 ? 's' : ''} encontrado${contactsFound.length > 1 ? 's' : ''} na sua lista.`);
+        }
+      } catch (contactsError) {
+        console.error('Error searching contacts:', contactsError);
+        // Continue with users search even if contacts search fails
+      }
+
+      // ===================================================================
+      // STEP 2: Search in global users collection if no contacts were found
+      // ===================================================================
+      if (foundResults.length === 0) {
+        console.log('No contacts found, searching in users...');
+        let usersFound = [];
+        try {
+          const usersCollection = collection(firestore, 'users');
+          
+          // Try various field combinations, as the schema might vary
+          const possibleEmailFields = ['email', 'userEmail', 'emailAddress'];
+          const possibleNameFields = ['name', 'fullName', 'displayName', 'userName'];
+          const possiblePhoneFields = ['phone', 'phoneNumber', 'userPhone', 'mobile'];
+          
+          // Search by email
+          if (normalizedTerm.includes('@')) {
+            console.log('Searching users by email:', normalizedTerm);
+            
+            // Try all possible email field names
+            for (const emailField of possibleEmailFields) {
+              try {
+                // No ownerId filter for global users search
+                const emailQuery = query(
+                  usersCollection,
+                  where(emailField, '==', normalizedTerm)
+                );
+                const emailResults = await getDocs(emailQuery);
+                usersFound = [...usersFound, ...emailResults.docs.map(doc => ({ id: doc.id, ...doc.data(), source: 'users' }))];
+              } catch (error) {
+                console.log(`Error searching by ${emailField}:`, error);
+                // Continue with next field
+              }
+            }
+          }
+          
+          // Search by phone number
+          if (phoneSearch.length >= 8) {
+            console.log('Searching users by phone:', phoneSearch);
+            
+            // Try all possible phone field names
+            for (const phoneField of possiblePhoneFields) {
+              // Try raw phone field
+              const rawPhoneField = `${phoneField}Raw`;
+              const rawPhoneQuery = query(usersCollection, where(rawPhoneField, '==', phoneSearch));
+              const rawSnap = await getDocs(rawPhoneQuery);
+              console.log(`Raw phone search results for '${rawPhoneField}':`, rawSnap.docs.length);
+              usersFound = usersFound.concat(rawSnap.docs.map(doc => ({
+                id: doc.id,
+                source: 'users',
+                company: doc.get('company') ?? '',
+                document: doc.get('document') ?? '',
+                email: doc.get('email') ?? '',
+                fullName: doc.get('fullName') ?? '',
+                phone: doc.get('phone') ?? ''
+              })));
+
+              // Try standard phone field
+              const phoneQuery = query(usersCollection, where(phoneField, '==', phoneSearch));
+              const phoneSnap = await getDocs(phoneQuery);
+              console.log(`User search results for '${phoneField}':`, phoneSnap.docs.length);
+              usersFound = usersFound.concat(phoneSnap.docs.map(doc => ({
+                id: doc.id,
+                source: 'users',
+                company: doc.get('company') ?? '',
+                document: doc.get('document') ?? '',
+                email: doc.get('email') ?? '',
+                fullName: doc.get('fullName') ?? '',
+                phone: doc.get('phone') ?? ''
+              })));
+            }
+          }
+          
+          // Search by document number (CPF/CNPJ)
+          if (documentSearch.length >= 11) {
+            console.log('Searching users by document:', documentSearch);
+            
+            // Try various field combinations for document
+            const possibleDocumentFields = ['document', 'documentRaw', 'cpfCnpj', 'cpf', 'cnpj'];
+            
+            for (const documentField of possibleDocumentFields) {
+              try {
+                const documentQuery = query(
+                  usersCollection,
+                  where(documentField, '==', documentSearch)
+                );
+                const documentResults = await getDocs(documentQuery);
+                console.log(`Document search results for '${documentField}' with value '${documentSearch}':`, documentResults.docs.length);
+                usersFound = usersFound.concat(documentResults.docs.map(doc => ({
+                    id: doc.id,
+                    source: 'users',
+                    company: doc.get('company') ?? '',
+                    document: doc.get('document') ?? '',
+                    email: doc.get('email') ?? '',
+                    fullName: doc.get('fullName') ?? '',
+                    phone: doc.get('phone') ?? ''
+                  })));
+              } catch (error) {
+                console.log(`Error searching by ${documentField}:`, error);
+                // Continue with next field
+              }
+            }
+          }
+          
+          // Append user results to foundResults (not overwrite)
+          if (usersFound && usersFound.length > 0) {
+            console.log(`Found ${usersFound.length} users in global search`, usersFound);
+            foundResults = [...foundResults, ...usersFound];
+            setSearchMessage(`Usuário${usersFound.length > 1 ? 's' : ''} encontrado${usersFound.length > 1 ? 's' : ''} no app.`);
+          }
+          
+          console.log('Users found:', usersFound);
+        } catch (globalSearchError) {
+          console.error('Error during global user search:', globalSearchError);
+          // Continue execution even if global search fails
+        }
+          
+          // This is redundant since we already added the users to foundResults above
+          // Remove to avoid duplication of results
+        }
+      }
+      
+      // If we still have no results, show the "add manually" option
+      if (foundResults.length === 0) {
+        console.log('No contacts found in local contacts or global users');
+        // We'll show the "add manually" option
+        setShowAddManually(true);
+      }
+
+      // If we still have no results after both steps, show "add manually" option
+      if (foundResults.length === 0) {
+        setShowAddManually(true);
+      }
+      
+      // Return the combined array
+      return foundResults;
+    } catch (error) {
+      console.error('Error in search process:', error);
+      setSearchError(error.message);
+    } finally {
+    // Process and set results
+    if (foundResults && foundResults.length > 0) {
+      // Make sure all results have required fields with defaults
+      const processedResults = foundResults.map(result => {
+        if (!result) return null;
+        
+        return {
+          ...result,
+          // Ensure these fields exist with fallbacks for UI rendering
+          id: result.id || '',
+          source: result.source || 'unknown',
+          fullName: result.fullName || result.name || result.nome || 'Usuário',
+          name: result.name || result.fullName || result.nome || 'Usuário',
+          email: result.email || '',
+          phone: result.phone || result.telefone || '',
+          company: result.company || result.empresa || ''
+        };
+      }).filter(r => r !== null); // Remove any null items
+      
+      console.log('Processed search results:', processedResults);
+      setSearchResults(processedResults);
+      
+      // Propagate results to the appropriate state variables for UI rendering
+      setFilteredContacts(processedResults.filter(r => r.source === 'contacts'));
+      setGlobalSearchResults(processedResults.filter(r => r.source === 'users'));
+      
+      // Special case: if there's exactly one global user, set it to foundGlobalUser
+      const globalUsers = processedResults.filter(r => r.source === 'users');
+      if (globalUsers.length === 1) {
+        setFoundGlobalUser(globalUsers[0]);
+      } else {
+        setFoundGlobalUser(null);
+      }
+    } else {
+      // Clear results if none found
+      setSearchResults([]);
+      setFilteredContacts([]);
+      setGlobalSearchResults([]);
+      setFoundGlobalUser(null);
+    }
+  } catch (searchError) {
+    // Main error handler for the entire search process
+    console.error('Unexpected error during search:', searchError);
+    setSearchError(searchError.message || 'Ocorreu um erro inesperado durante a pesquisa');
+    setSearchMessage('');
+    
+    // Clear results on error
+    setSearchResults([]);
+    setFilteredContacts([]);
+    setGlobalSearchResults([]);
+    setFoundGlobalUser(null);
+  } finally {
+    // Always ensure search state is reset
+    setIsSearching(false);
+  }
+      setFoundGlobalUser(null);
+    }
+    
+  };
 // Function to create a new contact with default values
 const resetNewContact = () => {
   setNewContact({
@@ -865,8 +1007,8 @@ const handleCreateContact = async (e) => {
       );
       
       if (!existingContact) {
-        // Create a contact record from the user data
-        const contactData = {
+              onClick={() => handleStartConversationWithGlobalUser(user || {})} 
+              className="w-full py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors flex items-center justify-center"
           fullName: user.fullName || user.nome || user.name || 'Usuário',
           name: user.fullName || user.nome || user.name || 'Usuário',
           email: user.email || '',

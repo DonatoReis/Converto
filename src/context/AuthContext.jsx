@@ -7,32 +7,11 @@ import {
   signOut, 
   browserLocalPersistence, 
   setPersistence,
-  GoogleAuthProvider,
-  signInWithPopup,
-  GithubAuthProvider,
-  OAuthProvider,
   sendPasswordResetEmail
 } from 'firebase/auth';
 import { doc, setDoc, getDoc, serverTimestamp } from 'firebase/firestore';
 import { auth, firestore } from '../firebase/config';
 import firestoreService from '../firebase/firestoreService';
-
-// SSO config - In a real app, these would be environment variables
-const SSO_CONFIG = {
-  google: {
-    clientId: 'google-client-id',
-    redirectUri: window.location.origin + '/auth/callback',
-  },
-  microsoft: {
-    clientId: 'microsoft-client-id',
-    redirectUri: window.location.origin + '/auth/callback',
-    tenantId: 'common',
-  },
-  github: {
-    clientId: 'github-client-id',
-    redirectUri: window.location.origin + '/auth/callback',
-  }
-};
 const AuthContext = createContext();
 
 export const useAuth = () => useContext(AuthContext);
@@ -208,117 +187,7 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  // Google SSO login with Firebase Authentication
-  const loginWithGoogle = async () => {
-    try {
-      const provider = new GoogleAuthProvider();
-      
-      // Add optional scopes if needed
-      provider.addScope('profile');
-      provider.addScope('email');
-      
-      // Sign in with popup
-      const result = await signInWithPopup(auth, provider);
-      
-      // Optional: Store additional user data in Firestore
-      const user = result.user;
-      const userDocRef = doc(firestore, 'users', user.uid);
-      const userDoc = await getDoc(userDocRef);
-      
-      if (!userDoc.exists()) {
-        // Create user document if it doesn't exist
-        await setDoc(userDocRef, {
-          name: user.displayName,
-          email: user.email,
-          photoURL: user.photoURL,
-          authProvider: 'google',
-          createdAt: serverTimestamp(),
-          lastLogin: serverTimestamp()
-        });
-      } else {
-        // Update last login
-        await setDoc(userDocRef, { 
-          lastLogin: serverTimestamp() 
-        }, { merge: true });
-      }
-      
-      return user;
-    } catch (error) {
-      console.error("Google login error:", error);
-      throw error;
-    }
-  };
-
-  // Microsoft SSO login with Firebase Authentication
-  const loginWithMicrosoft = async () => {
-    try {
-      const provider = new OAuthProvider('microsoft.com');
-      
-      // Configure provider settings
-      provider.setCustomParameters({
-        tenant: SSO_CONFIG.microsoft.tenantId
-      });
-      
-      // Sign in with popup
-      const result = await signInWithPopup(auth, provider);
-      
-      // Optional: Store additional user data in Firestore
-      const user = result.user;
-      const userDocRef = doc(firestore, 'users', user.uid);
-      const userDoc = await getDoc(userDocRef);
-      
-      if (!userDoc.exists()) {
-        // Create user document if it doesn't exist
-        await setDoc(userDocRef, {
-          name: user.displayName,
-          email: user.email,
-          photoURL: user.photoURL,
-          authProvider: 'microsoft',
-          createdAt: serverTimestamp(),
-          lastLogin: serverTimestamp()
-        });
-      } else {
-        // Update last login
-        await setDoc(userDocRef, { 
-          lastLogin: serverTimestamp() 
-        }, { merge: true });
-      }
-      
-      return user;
-    } catch (error) {
-      console.error("Microsoft login error:", error);
-      throw error;
-    }
-  };
-
-  // GitHub SSO login
-  const loginWithGithub = () => {
-    return new Promise((resolve, reject) => {
-      // In a real app, this would use the GitHub OAuth API
-      console.log('Authenticating with GitHub...');
-      
-      // Simulate a successful SSO login after a delay
-      setTimeout(() => {
-        const user = {
-          id: 'github_123456',
-          name: 'GitHub User',
-          email: 'user@github.com',
-          company: 'Mercatrix Solutions',
-          role: 'user',
-          authProvider: 'github',
-          // In a real app, there would be a token and other auth data
-          token: 'mock-github-token-' + Date.now()
-        };
-        
-        setCurrentUser(user);
-        setIsAuthenticated(true);
-        localStorage.setItem('mercatrix_user', JSON.stringify(user));
-        localStorage.setItem('mercatrix_auth_provider', 'github');
-        
-        resolve(user);
-      }, 1000);
-    });
-  };
+  // Third-party authentication providers have been removed
 
   // Register function
   const register = async (userData) => {
@@ -407,22 +276,19 @@ export const AuthProvider = ({ children }) => {
       const authProvider = localStorage.getItem('mercatrix_auth_provider');
       if (authProvider) {
         console.log(`Logging out from ${authProvider} provider`);
-        // For example, if using Google:
-        // if (authProvider === 'google' && window.gapi && window.gapi.auth2) {
-        //   const auth2 = window.gapi.auth2.getAuthInstance();
-        //   if (auth2) auth2.signOut();
-        // }
         localStorage.removeItem('mercatrix_auth_provider');
       }
       
-      // Clear local state
+      // Clear user state
       setCurrentUser(null);
       setIsAuthenticated(false);
-      localStorage.removeItem('mercatrix_user');
       
-      console.log("User logged out successfully");
+      // Clear any user data from local storage
+      localStorage.removeItem('userProfileImage');
+      
+      console.log('User logged out successfully');
     } catch (error) {
-      console.error("Logout error:", error);
+      console.error('Error logging out:', error);
       throw error;
     }
   };
@@ -589,11 +455,7 @@ export const AuthProvider = ({ children }) => {
     logout,
     requestPasswordReset,
     resetPassword,
-    loginWithGoogle,
-    loginWithMicrosoft,
-    loginWithGithub,
-    updateUserAvatar,
-    ssoConfig: SSO_CONFIG
+    updateUserAvatar
   };
 
   return (

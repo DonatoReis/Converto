@@ -134,3 +134,25 @@ Em caso de dúvidas ou problemas, abra uma issue no GitHub ou contate:
 
 <p align="center">Desenvolvido com ❤️ por Converto Team</p>
 
+## 🔥 Firebase Configuration
+
+This project now uses Firebase for authentication, real-time database, and push notifications. You'll need to set up your own Firebase project to run the application.
+
+### Setup Guide
+
+We've created a detailed guide to help you set up Firebase for this project:
+
+- [Firebase Setup Guide](./FIREBASE_SETUP.md)
+
+This guide walks you through creating a Firebase project, configuring authentication, database, cloud messaging, and more.
+
+## 🆕 Recent Updates
+
+- **Signal Protocol Improvements**: Modified all functions in signalProtocol.js to properly use wait getLibsignal() for better async handling
+- **Authentication**: Simplified to focus on email/password authentication, removing third-party providers
+- **Push Notifications**: Added Firebase Cloud Messaging (FCM) for push notifications when the app is in the background
+- **Deployment**: Updated GitHub Actions workflow for seamless Vercel deployment using environment variables
+- **Environment Variables**: Added comprehensive configuration options for all Firebase services
+- **Documentation**: Added detailed setup guides and improved documentation
+
+To get started with these new features, follow the [Firebase Setup Guide](./FIREBASE_SETUP.md) to configure your environment.

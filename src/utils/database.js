@@ -358,9 +358,19 @@ const Database = {
         contact.userId = contactData.userId;
       }
       
+      // Standardize the contact data to handle null values properly
+      const sanitizedContact = standardizeContact(contact);
+      logDebug('Sanitized contact data before sending to Firestore:', sanitizedContact);
+      
+      // Remove null or undefined fields to avoid Firestore internal assertion errors
+      const cleanedContact = Object.fromEntries(
+        Object.entries(sanitizedContact).filter(([_, v]) => v != null)
+      );
+      logDebug('Cleaned contact data before sending to Firestore:', cleanedContact);
+      
       // Use the collection reference directly
       const contactsCollection = collection(firestore, 'contacts');
-      const docRef = await addDoc(contactsCollection, contact);
+      const docRef = await addDoc(contactsCollection, cleanedContact);
       
       // Return the contact with its new ID
       return {

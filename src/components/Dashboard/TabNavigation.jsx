@@ -114,7 +114,7 @@ const TabNavigation = () => {
                   : 'text-[#2B4FFF] bg-[#2B4FFF]/10'
                 : darkMode
                 ? 'text-[#f1f1f1] hover:text-[#5C78FF] hover:bg-[#2B4FFF]/10'
-                : 'text-[#f1f1f1] hover:text-[#2B4FFF] hover:bg-[#2B4FFF]/5'
+                : 'text-[#171717] hover:text-[#2B4FFF] hover:bg-[#2B4FFF]/5'
             }`}
           >
             {tab.icon}

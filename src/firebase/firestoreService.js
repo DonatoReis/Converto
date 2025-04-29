@@ -1,14 +1,32 @@
 // src/firebase/firestoreService.js
-import { 
-  collection, doc, addDoc, setDoc, updateDoc, deleteDoc, 
-  getDocs, getDoc, query, where, orderBy, limit,
-  onSnapshot, serverTimestamp, writeBatch
-} from 'firebase/firestore';
-import { 
-  getAuth, fetchSignInMethodsForEmail, 
-  signInWithEmailAndPassword, createUserWithEmailAndPassword 
-} from 'firebase/auth';
-import { firestore } from './config';
+import {
+  collection,
+  doc,
+  addDoc,
+  setDoc,
+  updateDoc,
+  deleteDoc,
+  getDocs,
+  getDoc,
+  query,
+  where,
+  orderBy,
+  limit,
+  startAfter,
+  onSnapshot,
+  serverTimestamp,
+  writeBatch,
+} from "firebase/firestore";
+import {
+  getAuth,
+  fetchSignInMethodsForEmail,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+} from "firebase/auth";
+import { firestore } from "./config";
+import { standardizeContact } from "../models/ContactModel";
+
+const auth = getAuth();
 
 // ============= USUÁRIOS =============
 
@@ -19,16 +37,16 @@ import { firestore } from './config';
  */
 export const getUser = async (userId) => {
   try {
-    const userRef = doc(firestore, 'users', userId);
+    const userRef = doc(firestore, "users", userId);
     const userSnap = await getDoc(userRef);
-    
+
     if (userSnap.exists()) {
       return { id: userSnap.id, ...userSnap.data() };
     }
-    
+
     return null;
   } catch (error) {
-    console.error('Erro ao obter usuário:', error);
+    console.error("Erro ao obter usuário:", error);
     throw error;
   }
 };
@@ -41,21 +59,21 @@ export const getUser = async (userId) => {
  */
 export const updateUser = async (userId, userData) => {
   try {
-    const userRef = doc(firestore, 'users', userId);
-    
+    const userRef = doc(firestore, "users", userId);
+
     // Adiciona timestamp de atualização
     const dataToUpdate = {
       ...userData,
-      updatedAt: serverTimestamp()
+      updatedAt: serverTimestamp(),
     };
-    
+
     await updateDoc(userRef, dataToUpdate);
-    
+
     // Obtém os dados atualizados
     const updatedUser = await getDoc(userRef);
     return { id: updatedUser.id, ...updatedUser.data() };
   } catch (error) {
-    console.error('Erro ao atualizar usuário:', error);
+    console.error("Erro ao atualizar usuário:", error);
     throw error;
   }
 };
@@ -68,61 +86,76 @@ export const updateUser = async (userId, userData) => {
 export const createUser = async (userData) => {
   try {
     // Validar campos obrigatórios
-    const requiredFields = ['nome', 'empresa', 'cpfCnpj', 'telefone', 'email', 'senha'];
-    const missingFields = requiredFields.filter(field => !userData[field]);
-    
+    const requiredFields = [
+      "nome",
+      "empresa",
+      "cpfCnpj",
+      "telefone",
+      "email",
+      "senha",
+    ];
+    const missingFields = requiredFields.filter((field) => !userData[field]);
+
     if (missingFields.length > 0) {
-      throw new Error(`Campos obrigatórios ausentes: ${missingFields.join(', ')}`);
+      throw new Error(
+        `Campos obrigatórios ausentes: ${missingFields.join(", ")}`,
+      );
     }
-    
+
     const { email, senha, ...profileData } = userData;
-    
+
     // Verificar se o e-mail já está em uso
     const methods = await fetchSignInMethodsForEmail(auth, email);
-    
+
     if (methods && methods.length > 0) {
       // Usuário já existe, buscar dados do Firestore
       try {
         // Tentar fazer login para obter o UID
-        const userCredential = await signInWithEmailAndPassword(auth, email, senha);
+        const userCredential = await signInWithEmailAndPassword(
+          auth,
+          email,
+          senha,
+        );
         const userId = userCredential.user.uid;
-        
+
         // Buscar dados do usuário no Firestore
-        const userData = await getUser(userId);
-        return userData;
+        const existingUser = await getUser(userId);
+        return existingUser;
       } catch (loginError) {
-        throw new Error(`E-mail já cadastrado com credenciais diferentes: ${loginError.message}`);
+        throw new Error(
+          `E-mail já cadastrado com credenciais diferentes: ${loginError.message}`,
+        );
       }
     }
-    
+
     // Criar novo usuário no Authentication
-    const userCredential = await createUserWithEmailAndPassword(auth, email, senha);
+    const userCredential = await createUserWithEmailAndPassword(
+      auth,
+      email,
+      senha,
+    );
     const userId = userCredential.user.uid;
-    
+
     // Salvar dados do usuário no Firestore
-    const userRef = doc(firestore, 'users', userId);
+    const userRef = doc(firestore, "users", userId);
     const userData = {
       id: userId,
       email,
-      nome: profileData.nome,
-      empresa: profileData.empresa,
-      cpfCnpj: profileData.cpfCnpj,
-      telefone: profileData.telefone,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
-      ...profileData
+      ...profileData,
     };
-    
+
     await setDoc(userRef, userData);
-    
+
     // Converter timestamp para Date para uso imediato no cliente
     return {
       ...userData,
       createdAt: new Date(),
-      updatedAt: new Date()
+      updatedAt: new Date(),
     };
   } catch (error) {
-    console.error('Erro ao criar/verificar usuário:', error);
+    console.error("Erro ao criar/verificar usuário:", error);
     throw error;
   }
 };
@@ -136,20 +169,20 @@ export const createUser = async (userData) => {
  */
 export const getAllContacts = async (userId) => {
   try {
-    const contactsRef = collection(firestore, 'contacts');
+    const contactsRef = collection(firestore, "contacts");
     const q = query(
       contactsRef,
-      where('ownerId', '==', userId),
-      orderBy('name', 'asc')
+      where("ownerId", "==", userId),
+      orderBy("name", "asc"),
     );
-    
+
     const querySnapshot = await getDocs(q);
-    return querySnapshot.docs.map(doc => ({
+    return querySnapshot.docs.map((doc) => ({
       id: doc.id,
-      ...doc.data()
+      ...doc.data(),
     }));
   } catch (error) {
-    console.error('Erro ao obter contatos:', error);
+    console.error("Erro ao obter contatos:", error);
     throw error;
   }
 };
@@ -162,24 +195,28 @@ export const getAllContacts = async (userId) => {
  */
 export const subscribeToContacts = (userId, callback) => {
   try {
-    const contactsRef = collection(firestore, 'contacts');
+    const contactsRef = collection(firestore, "contacts");
     const q = query(
       contactsRef,
-      where('ownerId', '==', userId),
-      orderBy('name', 'asc')
+      where("ownerId", "==", userId),
+      orderBy("name", "asc"),
     );
-    
-    return onSnapshot(q, (snapshot) => {
-      const contacts = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-      callback(contacts);
-    }, (error) => {
-      console.error('Erro ao observar contatos:', error);
-    });
+
+    return onSnapshot(
+      q,
+      (snapshot) => {
+        const contacts = snapshot.docs.map((doc) => ({
+          id: doc.id,
+          ...doc.data(),
+        }));
+        callback(contacts);
+      },
+      (error) => {
+        console.error("Erro ao observar contatos:", error);
+      },
+    );
   } catch (error) {
-    console.error('Erro ao configurar listener de contatos:', error);
+    console.error("Erro ao configurar listener de contatos:", error);
     throw error;
   }
 };
@@ -191,22 +228,45 @@ export const subscribeToContacts = (userId, callback) => {
  */
 export const addContact = async (contactData) => {
   try {
-    // Adiciona timestamps automáticos
+    // Verificar se contactData existe
+    if (!contactData) {
+      throw new Error("Dados do contato são obrigatórios");
+    }
+
+    // Padronizar os dados do contato usando a função do ContactModel
+    const sanitizedData = standardizeContact(contactData);
+
+    // Garantir que o campo ownerId esteja presente
+    if (!sanitizedData.ownerId) {
+      throw new Error("Campo ownerId é obrigatório");
+    }
+
+    // Adicionar timestamps
     const data = {
-      ...contactData,
+      ...sanitizedData,
       createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp()
+      updatedAt: serverTimestamp(),
     };
-    
-    const docRef = await addDoc(collection(firestore, 'contacts'), data);
-    
-    // Retorna o contato com ID
-    return { 
+
+    // Verificação adicional para garantir que não há valores nulos
+    Object.keys(data).forEach((key) => {
+      if (data[key] === null) {
+        data[key] = ""; // Convert null to empty string
+      }
+    });
+
+    // Salvar no Firestore
+    const docRef = await addDoc(collection(firestore, "contacts"), data);
+
+    // Retornar o contato com ID e timestamps convertidos para uso imediato
+    return {
       id: docRef.id,
-      ...contactData
+      ...sanitizedData,
+      createdAt: new Date(),
+      updatedAt: new Date(),
     };
   } catch (error) {
-    console.error('Erro ao adicionar contato:', error);
+    console.error("Erro ao adicionar contato:", error);
     throw error;
   }
 };
@@ -219,23 +279,23 @@ export const addContact = async (contactData) => {
  */
 export const updateContact = async (contactId, contactData) => {
   try {
-    const contactRef = doc(firestore, 'contacts', contactId);
-    
+    const contactRef = doc(firestore, "contacts", contactId);
+
     // Adiciona timestamp de atualização
     const dataToUpdate = {
       ...contactData,
-      updatedAt: serverTimestamp()
+      updatedAt: serverTimestamp(),
     };
-    
+
     await updateDoc(contactRef, dataToUpdate);
-    
+
     // Retorna o contato atualizado
     return {
       id: contactId,
-      ...contactData
+      ...contactData,
     };
   } catch (error) {
-    console.error('Erro ao atualizar contato:', error);
+    console.error("Erro ao atualizar contato:", error);
     throw error;
   }
 };
@@ -247,10 +307,10 @@ export const updateContact = async (contactId, contactData) => {
  */
 export const deleteContact = async (contactId) => {
   try {
-    await deleteDoc(doc(firestore, 'contacts', contactId));
+    await deleteDoc(doc(firestore, "contacts", contactId));
     return true;
   } catch (error) {
-    console.error('Erro ao excluir contato:', error);
+    console.error("Erro ao excluir contato:", error);
     throw error;
   }
 };
@@ -259,29 +319,31 @@ export const deleteContact = async (contactId) => {
 
 /**
  * Obtém todas as conversas do usuário
- * @param {string} userId ID do usuário 
+ * @param {string} userId ID do usuário
  * @param {boolean} includeArchived Incluir conversas arquivadas
  * @returns {Promise<Array>} Lista de conversas
  */
 export const getAllConversations = async (userId, includeArchived = false) => {
   try {
-    const conversationsRef = collection(firestore, 'conversations');
-    
+    const conversationsRef = collection(firestore, "conversations");
+
     // Busca conversas onde o usuário é participante
     const q = query(
       conversationsRef,
-      where('participants', 'array-contains', userId),
-      includeArchived ? where('isArchived', '==', true) : where('isArchived', '==', false),
-      orderBy('updatedAt', 'desc')
+      where("participants", "array-contains", userId),
+      includeArchived
+        ? where("isArchived", "==", true)
+        : where("isArchived", "==", false),
+      orderBy("updatedAt", "desc"),
     );
-    
+
     const querySnapshot = await getDocs(q);
-    return querySnapshot.docs.map(doc => ({
+    return querySnapshot.docs.map((doc) => ({
       id: doc.id,
-      ...doc.data()
+      ...doc.data(),
     }));
   } catch (error) {
-    console.error('Erro ao obter conversas:', error);
+    console.error("Erro ao obter conversas:", error);
     throw error;
   }
 };
@@ -293,28 +355,38 @@ export const getAllConversations = async (userId, includeArchived = false) => {
  * @param {Function} callback Função a ser chamada quando houver mudanças
  * @returns {Function} Função para cancelar a inscrição
  */
-export const subscribeToConversations = (userId, includeArchived = false, callback) => {
+export const subscribeToConversations = (
+  userId,
+  includeArchived = false,
+  callback,
+) => {
   try {
-    const conversationsRef = collection(firestore, 'conversations');
-    
+    const conversationsRef = collection(firestore, "conversations");
+
     const q = query(
       conversationsRef,
-      where('participants', 'array-contains', userId),
-      includeArchived ? where('isArchived', '==', true) : where('isArchived', '==', false),
-      orderBy('updatedAt', 'desc')
+      where("participants", "array-contains", userId),
+      includeArchived
+        ? where("isArchived", "==", true)
+        : where("isArchived", "==", false),
+      orderBy("updatedAt", "desc"),
     );
-    
-    return onSnapshot(q, (snapshot) => {
-      const conversations = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-      callback(conversations);
-    }, (error) => {
-      console.error('Erro ao observar conversas:', error);
-    });
+
+    return onSnapshot(
+      q,
+      (snapshot) => {
+        const conversations = snapshot.docs.map((doc) => ({
+          id: doc.id,
+          ...doc.data(),
+        }));
+        callback(conversations);
+      },
+      (error) => {
+        console.error("Erro ao observar conversas:", error);
+      },
+    );
   } catch (error) {
-    console.error('Erro ao configurar listener de conversas:', error);
+    console.error("Erro ao configurar listener de conversas:", error);
     throw error;
   }
 };
@@ -327,35 +399,35 @@ export const subscribeToConversations = (userId, includeArchived = false, callba
 export const getOrCreateConversation = async (participantIds) => {
   try {
     // Obter conversas existentes com estes participantes
-    const conversationsRef = collection(firestore, 'conversations');
-    
+    const conversationsRef = collection(firestore, "conversations");
+
     // Verifica se já existe conversa com exatamente estes participantes
-    // Nota: Esta consulta é uma simplificação. Para precisão completa, 
+    // Nota: Esta consulta é uma simplificação. Para precisão completa,
     // seria necessário usar transações e lógica adicional para verificar
     // a correspondência exata de arrays.
     const q = query(
       conversationsRef,
-      where('participants', 'array-contains', participantIds[0])
+      where("participants", "array-contains", participantIds[0]),
     );
-    
+
     const querySnapshot = await getDocs(q);
-    
+
     // Procura por uma conversa com exatamente os mesmos participantes
-    const existingConversation = querySnapshot.docs.find(doc => {
+    const existingConversation = querySnapshot.docs.find((doc) => {
       const data = doc.data();
       return (
         data.participants.length === participantIds.length &&
-        participantIds.every(id => data.participants.includes(id))
+        participantIds.every((id) => data.participants.includes(id))
       );
     });
-    
+
     if (existingConversation) {
       return {
         id: existingConversation.id,
-        ...existingConversation.data()
+        ...existingConversation.data(),
       };
     }
-    
+
     // Cria nova conversa se não existir
     const newConversation = {
       participants: participantIds,
@@ -365,20 +437,20 @@ export const getOrCreateConversation = async (participantIds) => {
       unreadCount: 0,
       isPinned: false,
       isMuted: false,
-      isArchived: false
+      isArchived: false,
     };
-    
+
     const docRef = await addDoc(conversationsRef, newConversation);
-    
+
     return {
       id: docRef.id,
       ...newConversation,
       // Ajustando timestamps para uso imediato no cliente
       createdAt: new Date(),
-      updatedAt: new Date()
+      updatedAt: new Date(),
     };
   } catch (error) {
-    console.error('Erro ao obter/criar conversa:', error);
+    console.error("Erro ao obter/criar conversa:", error);
     throw error;
   }
 };
@@ -391,23 +463,23 @@ export const getOrCreateConversation = async (participantIds) => {
  */
 export const updateConversation = async (conversationId, conversationData) => {
   try {
-    const conversationRef = doc(firestore, 'conversations', conversationId);
-    
+    const conversationRef = doc(firestore, "conversations", conversationId);
+
     // Adiciona timestamp de atualização
     const dataToUpdate = {
       ...conversationData,
-      updatedAt: serverTimestamp()
+      updatedAt: serverTimestamp(),
     };
-    
+
     await updateDoc(conversationRef, dataToUpdate);
-    
+
     // Retorna a conversa atualizada
     return {
       id: conversationId,
-      ...conversationData
+      ...conversationData,
     };
   } catch (error) {
-    console.error('Erro ao atualizar conversa:', error);
+    console.error("Erro ao atualizar conversa:", error);
     throw error;
   }
 };
@@ -420,45 +492,45 @@ export const updateConversation = async (conversationId, conversationData) => {
  */
 export const markConversationAsRead = async (conversationId, userId) => {
   try {
-    const conversationRef = doc(firestore, 'conversations', conversationId);
-    
+    const conversationRef = doc(firestore, "conversations", conversationId);
+
     // Atualiza o contador de não lidas para 0
     await updateDoc(conversationRef, {
       unreadCount: 0,
-      updatedAt: serverTimestamp()
+      updatedAt: serverTimestamp(),
     });
-    
+
     // Também marcamos as mensagens individuais como lidas
-    const messagesRef = collection(firestore, 'messages');
+    const messagesRef = collection(firestore, "messages");
     const q = query(
       messagesRef,
-      where('conversationId', '==', conversationId),
-      where('readBy', 'array-contains-any', [userId])
+      where("conversationId", "==", conversationId),
+      where("readBy", "array-contains-any", [userId]),
     );
-    
+
     const querySnapshot = await getDocs(q);
-    
+
     // Usa batch para atualizar múltiplas mensagens de uma vez
     const batch = writeBatch(firestore);
-    
-    querySnapshot.docs.forEach(doc => {
+
+    querySnapshot.docs.forEach((doc) => {
       const messageRef = doc.ref;
       const messageData = doc.data();
-      
+
       // Adiciona o usuário à lista de leitores se não estiver lá
       if (!messageData.readBy.includes(userId)) {
         batch.update(messageRef, {
-          readBy: [...messageData.readBy, userId]
+          readBy: [...messageData.readBy, userId],
         });
       }
     });
-    
+
     // Executa todas as atualizações em batch
     await batch.commit();
-    
+
     return true;
   } catch (error) {
-    console.error('Erro ao marcar conversa como lida:', error);
+    console.error("Erro ao marcar conversa como lida:", error);
     throw error;
   }
 };
@@ -470,44 +542,50 @@ export const markConversationAsRead = async (conversationId, userId) => {
  * @param {string} startAfter ID da última mensagem para paginação
  * @returns {Promise<Array>} Lista de mensagens
  */
-export const getMessages = async (conversationId, limit = 50, startAfter = null) => {
+export const getMessages = async (
+  conversationId,
+  limit = 50,
+  startAfter = null,
+) => {
   try {
-    const messagesRef = collection(firestore, 'messages');
-    
+    const messagesRef = collection(firestore, "messages");
+
     let q;
-    
+
     if (startAfter) {
       // Se temos um ponto de início, usamos para paginação
-      const startAfterDoc = await getDoc(doc(firestore, 'messages', startAfter));
-      
+      const startAfterDoc = await getDoc(
+        doc(firestore, "messages", startAfter),
+      );
+
       if (startAfterDoc.exists()) {
         q = query(
           messagesRef,
-          where('conversationId', '==', conversationId),
-          orderBy('timestamp', 'desc'),
+          where("conversationId", "==", conversationId),
+          orderBy("timestamp", "desc"),
           startAfter(startAfterDoc),
-          limit(limit)
+          limit(limit),
         );
       } else {
-        throw new Error('Mensagem de referência para paginação não encontrada');
+        throw new Error("Mensagem de referência para paginação não encontrada");
       }
     } else {
       // Consulta inicial sem paginação
       q = query(
         messagesRef,
-        where('conversationId', '==', conversationId),
-        orderBy('timestamp', 'desc'),
-        limit(limit)
+        where("conversationId", "==", conversationId),
+        orderBy("timestamp", "desc"),
+        limit(limit),
       );
     }
-    
+
     const querySnapshot = await getDocs(q);
-    return querySnapshot.docs.map(doc => ({
+    return querySnapshot.docs.map((doc) => ({
       id: doc.id,
-      ...doc.data()
+      ...doc.data(),
     }));
   } catch (error) {
-    console.error('Erro ao obter mensagens:', error);
+    console.error("Erro ao obter mensagens:", error);
     throw error;
   }
 };
@@ -521,26 +599,30 @@ export const getMessages = async (conversationId, limit = 50, startAfter = null)
  */
 export const subscribeToMessages = (conversationId, callback, limit = 50) => {
   try {
-    const messagesRef = collection(firestore, 'messages');
-    
+    const messagesRef = collection(firestore, "messages");
+
     const q = query(
       messagesRef,
-      where('conversationId', '==', conversationId),
-      orderBy('timestamp', 'desc'),
-      limit(limit)
+      where("conversationId", "==", conversationId),
+      orderBy("timestamp", "desc"),
+      limit(limit),
     );
-    
-    return onSnapshot(q, (snapshot) => {
-      const messages = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-      callback(messages);
-    }, (error) => {
-      console.error('Erro ao observar mensagens:', error);
-    });
+
+    return onSnapshot(
+      q,
+      (snapshot) => {
+        const messages = snapshot.docs.map((doc) => ({
+          id: doc.id,
+          ...doc.data(),
+        }));
+        callback(messages);
+      },
+      (error) => {
+        console.error("Erro ao observar mensagens:", error);
+      },
+    );
   } catch (error) {
-    console.error('Erro ao configurar listener de mensagens:', error);
+    console.error("Erro ao configurar listener de mensagens:", error);
     throw error;
   }
 };
@@ -555,10 +637,10 @@ export const subscribeToMessages = (conversationId, callback, limit = 50) => {
 export const sendMessage = async (conversationId, senderId, content) => {
   try {
     // Determina o tipo de mensagem
-    const isComplexContent = typeof content === 'object';
-    const messageType = isComplexContent ? (content.type || 'text') : 'text';
+    const isComplexContent = typeof content === "object";
+    const messageType = isComplexContent ? content.type || "text" : "text";
     const messageContent = isComplexContent ? content.content : content;
-    
+
     // Cria a mensagem
     const messageData = {
       conversationId,
@@ -567,35 +649,38 @@ export const sendMessage = async (conversationId, senderId, content) => {
       type: messageType,
       timestamp: serverTimestamp(),
       readBy: [],
-      mediaAttachments: []
+      mediaAttachments: [],
     };
-    
+
     // Processar anexos de mídia, se houver
     if (isComplexContent && content.mediaAttachments) {
       messageData.mediaAttachments = content.mediaAttachments;
     }
-    
+
     // Adicionar a mensagem à coleção de mensagens
-    const messageRef = await addDoc(collection(firestore, 'messages'), messageData);
-    
+    const messageRef = await addDoc(
+      collection(firestore, "messages"),
+      messageData,
+    );
+
     // Atualizar a conversa com a referência à última mensagem e contador de não lidas
-    const conversationRef = doc(firestore, 'conversations', conversationId);
+    const conversationRef = doc(firestore, "conversations", conversationId);
     await updateDoc(conversationRef, {
       lastMessage: messageRef.id,
       updatedAt: serverTimestamp(),
       // Incrementar contador de não lidas apenas para mensagens não enviadas pelo usuário atual
-      unreadCount: 1 // Isso seria incrementado com lógica mais complexa em produção
+      unreadCount: 1, // Isso seria incrementado com lógica mais complexa em produção
     });
-    
+
     // Retornar a mensagem enviada com ID
     return {
       id: messageRef.id,
       ...messageData,
       // Converter timestamp de servidor para objeto Date para uso imediato
-      timestamp: new Date()
+      timestamp: new Date(),
     };
   } catch (error) {
-    console.error('Erro ao enviar mensagem:', error);
+    console.error("Erro ao enviar mensagem:", error);
     throw error;
   }
 };
@@ -609,43 +694,46 @@ export const sendMessage = async (conversationId, senderId, content) => {
 export const deleteMessage = async (messageId, conversationId) => {
   try {
     // Excluir a mensagem
-    const messageRef = doc(firestore, 'messages', messageId);
+    const messageRef = doc(firestore, "messages", messageId);
     await deleteDoc(messageRef);
-    
+
     // Verificar se era a última mensagem e atualizar a conversa se necessário
-    const conversationRef = doc(firestore, 'conversations', conversationId);
+    const conversationRef = doc(firestore, "conversations", conversationId);
     const conversationSnap = await getDoc(conversationRef);
-    
-    if (conversationSnap.exists() && conversationSnap.data().lastMessage === messageId) {
+
+    if (
+      conversationSnap.exists() &&
+      conversationSnap.data().lastMessage === messageId
+    ) {
       // Buscar a mensagem mais recente para atualizar a conversa
-      const messagesRef = collection(firestore, 'messages');
+      const messagesRef = collection(firestore, "messages");
       const q = query(
         messagesRef,
-        where('conversationId', '==', conversationId),
-        orderBy('timestamp', 'desc'),
-        limit(1)
+        where("conversationId", "==", conversationId),
+        orderBy("timestamp", "desc"),
+        limit(1),
       );
-      
+
       const querySnapshot = await getDocs(q);
-      
+
       if (querySnapshot.docs.length > 0) {
         // Atualizar com a nova última mensagem
         await updateDoc(conversationRef, {
           lastMessage: querySnapshot.docs[0].id,
-          updatedAt: serverTimestamp()
+          updatedAt: serverTimestamp(),
         });
       } else {
         // Não há mais mensagens
         await updateDoc(conversationRef, {
           lastMessage: null,
-          updatedAt: serverTimestamp()
+          updatedAt: serverTimestamp(),
         });
       }
     }
-    
+
     return true;
   } catch (error) {
-    console.error('Erro ao excluir mensagem:', error);
+    console.error("Erro ao excluir mensagem:", error);
     throw error;
   }
 };
@@ -660,35 +748,44 @@ export const deleteMessage = async (messageId, conversationId) => {
  */
 export const getMarketplaceProducts = async (filters = {}, limit = 20) => {
   try {
-    const productsRef = collection(firestore, 'marketplace_products');
-    
+    const productsRef = collection(firestore, "marketplace_products");
+
     // Construir a query com base nos filtros fornecidos
-    let productQuery = query(productsRef, orderBy('createdAt', 'desc'));
-    
+    let productQuery = query(productsRef, orderBy("createdAt", "desc"));
+
     // Aplicar filtros se fornecidos
     if (filters.category) {
-      productQuery = query(productQuery, where('category', '==', filters.category));
+      productQuery = query(
+        productQuery,
+        where("category", "==", filters.category),
+      );
     }
-    
+
     if (filters.minPrice) {
-      productQuery = query(productQuery, where('price', '>=', filters.minPrice));
+      productQuery = query(
+        productQuery,
+        where("price", ">=", filters.minPrice),
+      );
     }
-    
+
     if (filters.maxPrice) {
-      productQuery = query(productQuery, where('price', '<=', filters.maxPrice));
+      productQuery = query(
+        productQuery,
+        where("price", "<=", filters.maxPrice),
+      );
     }
-    
+
     // Aplicar limite
     productQuery = query(productQuery, limit(limit));
-    
+
     const querySnapshot = await getDocs(productQuery);
-    
-    return querySnapshot.docs.map(doc => ({
+
+    return querySnapshot.docs.map((doc) => ({
       id: doc.id,
-      ...doc.data()
+      ...doc.data(),
     }));
   } catch (error) {
-    console.error('Erro ao obter produtos do marketplace:', error);
+    console.error("Erro ao obter produtos do marketplace:", error);
     throw error;
   }
 };
@@ -700,46 +797,16 @@ export const getMarketplaceProducts = async (filters = {}, limit = 20) => {
  */
 export const getMarketplaceProduct = async (productId) => {
   try {
-    const productRef = doc(firestore, 'marketplace_products', productId);
+    const productRef = doc(firestore, "marketplace_products", productId);
     const productSnap = await getDoc(productRef);
-    
+
     if (productSnap.exists()) {
       return { id: productSnap.id, ...productSnap.data() };
     }
-    
+
     return null;
   } catch (error) {
-    console.error('Erro ao obter detalhes do produto:', error);
-    throw error;
-  }
-};
-
-/**
- * Adiciona um novo produto ao marketplace
- * @param {Object} productData Dados do produto
- * @returns {Promise<Object>} Produto adicionado
- */
-export const addMarketplaceProduct = async (productData) => {
-  try {
-    // Adiciona timestamps e status inicial
-    const data = {
-      ...productData,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-      status: productData.status || 'active'
-    };
-    
-    const docRef = await addDoc(collection(firestore, 'marketplace_products'), data);
-    
-    // Retorna o produto com ID
-    return { 
-      id: docRef.id,
-      ...productData,
-      createdAt: new Date(),
-      updatedAt: new Date()
-    };
-  } catch (error) {
-    console.error('Erro ao adicionar produto ao marketplace:', error);
+    console.error("Erro ao obter detalhes do produto:", error);
     throw error;
   }
 };
@@ -752,24 +819,24 @@ export const addMarketplaceProduct = async (productData) => {
  */
 export const updateMarketplaceProduct = async (productId, productData) => {
   try {
-    const productRef = doc(firestore, 'marketplace_products', productId);
-    
+    const productRef = doc(firestore, "marketplace_products", productId);
+
     // Adiciona timestamp de atualização
     const dataToUpdate = {
       ...productData,
-      updatedAt: serverTimestamp()
+      updatedAt: serverTimestamp(),
     };
-    
+
     await updateDoc(productRef, dataToUpdate);
-    
+
     // Retorna o produto atualizado
     return {
       id: productId,
       ...productData,
-      updatedAt: new Date()
+      updatedAt: new Date(),
     };
   } catch (error) {
-    console.error('Erro ao atualizar produto do marketplace:', error);
+    console.error("Erro ao atualizar produto do marketplace:", error);
     throw error;
   }
 };
@@ -781,10 +848,10 @@ export const updateMarketplaceProduct = async (productId, productData) => {
  */
 export const deleteMarketplaceProduct = async (productId) => {
   try {
-    await deleteDoc(doc(firestore, 'marketplace_products', productId));
+    await deleteDoc(doc(firestore, "marketplace_products", productId));
     return true;
   } catch (error) {
-    console.error('Erro ao excluir produto do marketplace:', error);
+    console.error("Erro ao excluir produto do marketplace:", error);
     throw error;
   }
 };
@@ -797,32 +864,29 @@ export const deleteMarketplaceProduct = async (productId) => {
  * @param {string} query Texto da busca
  * @returns {Promise<Array>} Resultados da busca
  */
-export const searchContacts = async (userId, query) => {
+export const searchContacts = async (userId, searchText) => {
   try {
     // Normaliza a consulta (minúsculas e sem espaços extras)
-    const normalizedQuery = query.toLowerCase().trim();
-    
+    const normalizedQuery = searchText.toLowerCase().trim();
+
     if (!normalizedQuery) {
       return [];
     }
-    
+
     // Busca os contatos do usuário
-    const contactsRef = collection(firestore, 'contacts');
-    const q = query(
-      contactsRef,
-      where('ownerId', '==', userId)
-    );
-    
+    const contactsRef = collection(firestore, "contacts");
+    const q = query(contactsRef, where("ownerId", "==", userId));
+
     const querySnapshot = await getDocs(q);
-    
+
     // Filtrar no cliente os contatos que correspondem à busca
     return querySnapshot.docs
-      .map(doc => ({ id: doc.id, ...doc.data() }))
-      .filter(contact => {
-        const name = contact.name?.toLowerCase() || '';
-        const email = contact.email?.toLowerCase() || '';
-        const company = contact.company?.toLowerCase() || '';
-        
+      .map((doc) => ({ id: doc.id, ...doc.data() }))
+      .filter((contact) => {
+        const name = contact.name?.toLowerCase() || "";
+        const email = contact.email?.toLowerCase() || "";
+        const company = contact.company?.toLowerCase() || "";
+
         return (
           name.includes(normalizedQuery) ||
           email.includes(normalizedQuery) ||
@@ -830,7 +894,7 @@ export const searchContacts = async (userId, query) => {
         );
       });
   } catch (error) {
-    console.error('Erro ao buscar contatos:', error);
+    console.error("Erro ao buscar contatos:", error);
     throw error;
   }
 };
@@ -842,87 +906,100 @@ export const searchContacts = async (userId, query) => {
  * @param {string} conversationId ID da conversa (opcional, para limitar a busca)
  * @returns {Promise<Array>} Resultados da busca
  */
-export const searchMessages = async (userId, query, conversationId = null) => {
+export const searchMessages = async (
+  userId,
+  searchText,
+  conversationId = null,
+) => {
   try {
     // Normaliza a consulta
-    const normalizedQuery = query.toLowerCase().trim();
-    
+    const normalizedQuery = searchText.toLowerCase().trim();
+
     if (!normalizedQuery) {
       return [];
     }
-    
+
     // Obtém as conversas do usuário
-    const conversationsRef = collection(firestore, 'conversations');
+    const conversationsRef = collection(firestore, "conversations");
     let conversationQuery = query(
       conversationsRef,
-      where('participants', 'array-contains', userId)
+      where("participants", "array-contains", userId),
     );
-    
+
     let conversations = [];
-    
+
     // Se um ID de conversa específico foi fornecido, filtre apenas essa conversa
     if (conversationId) {
-      const conversationSnap = await getDoc(doc(firestore, 'conversations', conversationId));
+      const conversationSnap = await getDoc(
+        doc(firestore, "conversations", conversationId),
+      );
       if (conversationSnap.exists()) {
-        conversations = [{ id: conversationSnap.id, ...conversationSnap.data() }];
+        conversations = [
+          { id: conversationSnap.id, ...conversationSnap.data() },
+        ];
       }
     } else {
       const conversationsSnapshot = await getDocs(conversationQuery);
-      conversations = conversationsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      conversations = conversationsSnapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      }));
     }
-    
+
     // Se não houver conversas, retorna um array vazio
     if (conversations.length === 0) {
       return [];
     }
-    
+
     // Array para armazenar os resultados
     const results = [];
-    
+
     // Para cada conversa, obter mensagens e filtrar as que contêm a consulta
-    const conversationIds = conversations.map(conv => conv.id);
-    
+    const conversationIds = conversations.map((conv) => conv.id);
+
     // Usar uma busca eficiente por todas as mensagens das conversas relevantes de uma só vez
-    const messagesRef = collection(firestore, 'messages');
+    const messagesRef = collection(firestore, "messages");
     const messagesQuery = query(
       messagesRef,
-      where('conversationId', 'in', conversationIds),
-      orderBy('timestamp', 'desc'),
-      limit(100) // Limite para evitar carregar muitas mensagens
+      where("conversationId", "in", conversationIds),
+      orderBy("timestamp", "desc"),
+      limit(100), // Limite para evitar carregar muitas mensagens
     );
-    
+
     const messagesSnapshot = await getDocs(messagesQuery);
-    
+
     // Filtrar mensagens que contêm a consulta
     const filteredMessages = messagesSnapshot.docs
-      .map(doc => ({ id: doc.id, ...doc.data() }))
-      .filter(message => {
+      .map((doc) => ({ id: doc.id, ...doc.data() }))
+      .filter((message) => {
         // Filtrar apenas mensagens de texto que contêm a consulta
-        if (message.type === 'text') {
+        if (message.type === "text") {
           return message.content.toLowerCase().includes(normalizedQuery);
         }
         return false;
       });
-    
+
     // Agora enriquecer as mensagens com informações da conversa
     for (const message of filteredMessages) {
-      const conversation = conversations.find(conv => conv.id === message.conversationId);
-      
+      const conversation = conversations.find(
+        (conv) => conv.id === message.conversationId,
+      );
+
       if (conversation) {
         results.push({
           ...message,
           conversation: {
             id: conversation.id,
-            title: conversation.title || 'Conversa sem título',
-            participants: conversation.participants
-          }
+            title: conversation.title || "Conversa sem título",
+            participants: conversation.participants,
+          },
         });
       }
     }
-    
+
     return results;
   } catch (error) {
-    console.error('Erro ao buscar mensagens:', error);
+    console.error("Erro ao buscar mensagens:", error);
     throw error;
   }
 };
@@ -933,47 +1010,56 @@ export const searchMessages = async (userId, query, conversationId = null) => {
  * @param {Object} filters Filtros adicionais (categoria, preço, etc)
  * @returns {Promise<Array>} Resultados da busca
  */
-export const searchMarketplaceProducts = async (query, filters = {}) => {
+export const searchMarketplaceProducts = async (searchText, filters = {}) => {
   try {
     // Normaliza a consulta
-    const normalizedQuery = query.toLowerCase().trim();
-    
+    const normalizedQuery = searchText.toLowerCase().trim();
+
     if (!normalizedQuery) {
       return [];
     }
-    
+
     // Busca produtos (infelizmente Firestore não suporta busca de texto completo,
     // então precisamos buscar todos os produtos e filtrar no cliente)
-    const productsRef = collection(firestore, 'marketplace_products');
+    const productsRef = collection(firestore, "marketplace_products");
     let productsQuery = query(
       productsRef,
-      where('status', '==', 'active'),
-      orderBy('createdAt', 'desc')
+      where("status", "==", "active"),
+      orderBy("createdAt", "desc"),
     );
-    
+
     // Aplicar filtros adicionais
     if (filters.category) {
-      productsQuery = query(productsQuery, where('category', '==', filters.category));
+      productsQuery = query(
+        productsQuery,
+        where("category", "==", filters.category),
+      );
     }
-    
+
     if (filters.minPrice) {
-      productsQuery = query(productsQuery, where('price', '>=', filters.minPrice));
+      productsQuery = query(
+        productsQuery,
+        where("price", ">=", filters.minPrice),
+      );
     }
-    
+
     if (filters.maxPrice) {
-      productsQuery = query(productsQuery, where('price', '<=', filters.maxPrice));
+      productsQuery = query(
+        productsQuery,
+        where("price", "<=", filters.maxPrice),
+      );
     }
-    
+
     const querySnapshot = await getDocs(productsQuery);
-    
+
     // Filtrar os produtos que correspondem à busca de texto no lado do cliente
     return querySnapshot.docs
-      .map(doc => ({ id: doc.id, ...doc.data() }))
-      .filter(product => {
-        const name = product.name?.toLowerCase() || '';
-        const description = product.description?.toLowerCase() || '';
-        const tags = product.tags?.join(' ').toLowerCase() || '';
-        
+      .map((doc) => ({ id: doc.id, ...doc.data() }))
+      .filter((product) => {
+        const name = product.name?.toLowerCase() || "";
+        const description = product.description?.toLowerCase() || "";
+        const tags = product.tags?.join(" ").toLowerCase() || "";
+
         return (
           name.includes(normalizedQuery) ||
           description.includes(normalizedQuery) ||
@@ -981,44 +1067,49 @@ export const searchMarketplaceProducts = async (query, filters = {}) => {
         );
       });
   } catch (error) {
-    console.error('Erro ao buscar produtos do marketplace:', error);
+    console.error("Erro ao buscar produtos do marketplace:", error);
     throw error;
   }
 };
 
-// ============= BUSCA =============
-
 /**
- * Busca usuários globais por email
- * @param {string} email Email a ser buscado
- * @returns {Promise<Array>} Usuários encontrados
+ * Adiciona um produto ao marketplace
+ * @param {Object} productData Dados do produto
+ * @returns {Promise<Object>} Produto adicionado
  */
-export const searchUsersByEmail = async (email) => {
+export const addMarketplaceProduct = async (productData) => {
   try {
-    if (!email || !email.includes('@')) {
-      return [];
-    }
+    // Sanitizar os dados do produto
+    const sanitizedData = {
+      name: productData.name || "",
+      description: productData.description || "",
+      price: productData.price || 0,
+      sellerId: productData.sellerId,
+      category: productData.category || "other",
+      images: productData.images || [],
+      status: "active",
+    };
 
-    // Normaliza o email (minúsculas e sem espaços extras)
-    const normalizedEmail = email.toLowerCase().trim();
-    
-    // Busca na coleção de usuários
-    const usersRef = collection(firestore, 'users');
-    const q = query(
-      usersRef,
-      where('email', '==', normalizedEmail),
-      limit(5) // Limita resultado para performance
+    // Adicionar timestamps
+    const data = {
+      ...sanitizedData,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    };
+
+    const docRef = await addDoc(
+      collection(firestore, "marketplace_products"),
+      data,
     );
-    
-    const querySnapshot = await getDocs(q);
-    
-    return querySnapshot.docs.map(doc => ({ 
-      id: doc.id, 
-      ...doc.data(),
-      source: 'global' 
-    }));
+
+    return {
+      id: docRef.id,
+      ...sanitizedData,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
   } catch (error) {
-    console.error('Erro ao buscar usuários por email:', error);
+    console.error("Erro ao adicionar produto ao marketplace:", error);
     throw error;
   }
 };
@@ -1030,21 +1121,22 @@ export const searchUsersByEmail = async (email) => {
  */
 export const searchUsersByPhone = async (phone) => {
   try {
-    const normalized = String(phone || '').replace(/\D/g, '');
+    const normalized = String(phone || "").replace(/\D/g, "");
     if (!normalized) return [];
-    const usersRef = collection(firestore, 'users');
-    const q = query(usersRef, where('phone', '==', normalized), limit(5));
+    const usersRef = collection(firestore, "users");
+    const q = query(usersRef, where("phone", "==", normalized), limit(5));
     const snap = await getDocs(q);
-    return snap.docs.map(doc => ({
+    return snap.docs.map((doc) => ({
       id: doc.id,
       ...doc.data(),
-      source: 'global'
+      source: "global",
     }));
   } catch (error) {
-    console.error('Erro ao buscar usuários por telefone:', error);
+    console.error("Erro ao buscar usuários por telefone:", error);
     throw error;
   }
 };
+
 /**
  * Busca usuários globais por documento (CPF/CNPJ)
  * @param {string} document Documento a ser buscado (CPF ou CNPJ)
@@ -1052,130 +1144,76 @@ export const searchUsersByPhone = async (phone) => {
  */
 export const searchUsersByDocument = async (document) => {
   try {
-    // Verifica se o documento é válido
-    if (!document || typeof document !== 'string') {
-      console.log('Documento inválido ou não fornecido');
-      return [];
-    }
-    
-    // Normaliza o documento (apenas dígitos)
-    const normalizedDoc = document.replace(/\D/g, '');
-    if (normalizedDoc.length < 11) {
-      console.log(`Documento muito curto: ${normalizedDoc.length} dígitos (mínimo 11)`);
-      return [];
-    }
-    
-    console.log(`Buscando usuários com documento normalizado: ${normalizedDoc}`);
-    
-    // Busca na coleção de usuários
-    const usersRef = collection(firestore, 'users');
+    if (!document) return [];
+
+    // Normaliza o documento (apenas números)
+    const normalizedDoc = String(document).replace(/\D/g, "");
+    if (normalizedDoc.length < 3) return [];
+
     const documentResults = [];
+    const usersRef = collection(firestore, "users");
 
-    try {
-      // Busca por 'cpfCnpj' (campo mais comum)
-      const q1 = query(
-        usersRef,
-        where('cpfCnpj', '==', normalizedDoc),
-        limit(5)
-      );
-      const snapshot1 = await getDocs(q1);
-      console.log(`Encontrados ${snapshot1.docs.length} usuários pelo campo 'cpfCnpj'`);
-      
-      documentResults.push(...snapshot1.docs.map(doc => {
-        const data = doc.data();
-        return {
-          id: doc.id,
-          fullName: data.fullName || data.nome || data.name || 'Usuário',
-          email: data.email || '',
-          company: data.empresa || data.company || '',
-          document: data.cpfCnpj || data.document || '',
-          phone: data.telefone || data.phone || '',
-          source: 'users'
-        };
-      }));
-    } catch (searchError) {
-      console.error('Erro na busca por cpfCnpj:', searchError);
-      // Continue com a próxima busca mesmo se esta falhar
-    }
-
-    // Busca por 'document' (formato alternativo) apenas se não encontrou resultados anteriormente
-    if (documentResults.length === 0) {
-      try {
-        const q2 = query(
-          usersRef,
-          where('document', '==', normalizedDoc),
-          limit(5)
-        );
-        const snapshot2 = await getDocs(q2);
-        console.log(`Encontrados ${snapshot2.docs.length} usuários pelo campo 'document'`);
-        
-        documentResults.push(...snapshot2.docs.map(doc => {
-          const data = doc.data();
-          return {
-            id: doc.id,
-            fullName: data.fullName || data.nome || data.name || 'Usuário',
-            email: data.email || '',
-            company: data.empresa || data.company || '',
-            document: data.document || data.cpfCnpj || '',
-            phone: data.telefone || data.phone || '',
-            source: 'users'
-          };
-        }));
-      } catch (searchError) {
-        console.error('Erro na busca por document:', searchError);
-      }
-    }
-    
-    console.log(`Total de resultados para documento ${normalizedDoc}: ${documentResults.length}`);
-    return documentResults;
+    // Busca exata pelo campo document
+    const q = query(usersRef, where("document", "==", normalizedDoc), limit(5));
+    const snapshot = await getDocs(q);
+    return snapshot.docs.map((doc) => {
+      const data = doc.data();
+      return {
+        id: doc.id,
+        fullName: data.fullName || data.nome || data.name || "Usuário",
+        email: data.email || "",
+        company: data.empresa || data.company || "",
+        document: data.document || data.cpfCnpj || "",
+        phone: data.telefone || data.phone || "",
+        source: "global",
+      };
+    });
   } catch (error) {
-    console.error('Erro ao buscar usuários por documento:', error);
-    // Retorna array vazio em vez de propagar o erro para não quebrar a UI
+    console.error("Erro ao buscar usuários por documento:", error);
     return [];
   }
 };
-};
 
+// Definir o objeto firestoreService com todas as funções exportadas
 const firestoreService = {
   // Usuários
   getUser,
   updateUser,
   createUser,
-  
+
   // Contatos
   getAllContacts,
   subscribeToContacts,
   addContact,
   updateContact,
   deleteContact,
-  
+
   // Conversas
   getAllConversations,
-  subscribeToConversations, 
+  subscribeToConversations,
   getOrCreateConversation,
   updateConversation,
   markConversationAsRead,
-  
+
   // Mensagens
   getMessages,
   subscribeToMessages,
   sendMessage,
   deleteMessage,
-  
+
   // Marketplace
   getMarketplaceProducts,
   getMarketplaceProduct,
   addMarketplaceProduct,
   updateMarketplaceProduct,
   deleteMarketplaceProduct,
-  
+
   // Busca
   searchContacts,
   searchMessages,
   searchMarketplaceProducts,
-  searchUsersByEmail,
   searchUsersByPhone,
-  searchUsersByDocument
+  searchUsersByDocument,
 };
 
 export default firestoreService;

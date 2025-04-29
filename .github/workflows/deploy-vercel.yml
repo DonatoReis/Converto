@@ -23,15 +23,76 @@ jobs:
       - name: Install Vercel CLI
         run: npm install --global vercel
 
+      - name: Verify environment variables are set
+        run: |
+          # Check if required secrets are available
+          if [ -z "${{ secrets.VERCEL_TOKEN }}" ]; then
+            echo "::error::VERCEL_TOKEN is not set. Please add it as a repository secret."
+            exit 1
+          fi
+          
+          # Check Firebase config secrets
+          if [ -z "${{ secrets.FIREBASE_API_KEY }}" ]; then
+            echo "::warning::FIREBASE_API_KEY is not set. Firebase functionality may be limited."
+          fi
+          
+          echo "All required environment variables are set."
+
+      - name: Set up environment variables file
+        run: |
+          # Create .env file for build
+          cat > .env.production << EOF
+          VITE_FIREBASE_API_KEY=${{ secrets.FIREBASE_API_KEY }}
+          VITE_FIREBASE_AUTH_DOMAIN=${{ secrets.FIREBASE_AUTH_DOMAIN }}
+          VITE_FIREBASE_PROJECT_ID=${{ secrets.FIREBASE_PROJECT_ID }}
+          VITE_FIREBASE_STORAGE_BUCKET=${{ secrets.FIREBASE_STORAGE_BUCKET }}
+          VITE_FIREBASE_MESSAGING_SENDER_ID=${{ secrets.FIREBASE_MESSAGING_SENDER_ID }}
+          VITE_FIREBASE_APP_ID=${{ secrets.FIREBASE_APP_ID }}
+          VITE_FIREBASE_DATABASE_URL=${{ secrets.FIREBASE_DATABASE_URL }}
+          VITE_FIREBASE_VAPID_KEY=${{ secrets.FIREBASE_VAPID_KEY }}
+          EOF
+          
+          echo "Created environment file with Firebase configuration."
+
       - name: Deploy to Vercel (Production)
         env:
           # Set your Vercel token as a repository secret:
           # Settings → Secrets → Actions → New repository secret "VERCEL_TOKEN"
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          
+          # Firebase configuration secrets:
+          # Add these secrets in your GitHub repository:
+          # Settings → Secrets → Actions → New repository secret
+          # - FIREBASE_API_KEY
+          # - FIREBASE_AUTH_DOMAIN
+          # - FIREBASE_PROJECT_ID
+          # - FIREBASE_STORAGE_BUCKET
+          # - FIREBASE_MESSAGING_SENDER_ID
+          # - FIREBASE_APP_ID
+          # - FIREBASE_DATABASE_URL
+          # - FIREBASE_VAPID_KEY
         run: |
+          # Set Vercel environment variables
           vercel pull --yes --environment=production --token=$VERCEL_TOKEN
+          
+          # Add Firebase environment variables to Vercel project
+          vercel env add VITE_FIREBASE_API_KEY production ${{ secrets.FIREBASE_API_KEY }} --token=$VERCEL_TOKEN || true
+          vercel env add VITE_FIREBASE_AUTH_DOMAIN production ${{ secrets.FIREBASE_AUTH_DOMAIN }} --token=$VERCEL_TOKEN || true
+          vercel env add VITE_FIREBASE_PROJECT_ID production ${{ secrets.FIREBASE_PROJECT_ID }} --token=$VERCEL_TOKEN || true
+          vercel env add VITE_FIREBASE_STORAGE_BUCKET production ${{ secrets.FIREBASE_STORAGE_BUCKET }} --token=$VERCEL_TOKEN || true
+          vercel env add VITE_FIREBASE_MESSAGING_SENDER_ID production ${{ secrets.FIREBASE_MESSAGING_SENDER_ID }} --token=$VERCEL_TOKEN || true
+          vercel env add VITE_FIREBASE_APP_ID production ${{ secrets.FIREBASE_APP_ID }} --token=$VERCEL_TOKEN || true
+          vercel env add VITE_FIREBASE_DATABASE_URL production ${{ secrets.FIREBASE_DATABASE_URL }} --token=$VERCEL_TOKEN || true
+          vercel env add VITE_FIREBASE_VAPID_KEY production ${{ secrets.FIREBASE_VAPID_KEY }} --token=$VERCEL_TOKEN || true
+          
+          # Build and deploy
           vercel build --prod --token=$VERCEL_TOKEN
           vercel deploy --prebuilt --prod --token=$VERCEL_TOKEN
 
 # See https://vercel.com/docs/concepts/projects/environment-variables for Vercel config.
+# For Firebase setup:
+# 1. Create a Firebase project at https://console.firebase.google.com/
+# 2. Get your Firebase configuration from Project Settings > General > Your apps > SDK setup
+# 3. Add all Firebase configuration values as GitHub repository secrets
+# 4. They will be automatically passed to Vercel during deployment
 

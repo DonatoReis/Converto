@@ -55,6 +55,7 @@ const base64ToArrayBuffer = (base64) => {
  */
 const generateIdentityKeyPair = async () => {
   try {
+    const libsignal = await getLibsignal();
     const keyPair = await libsignal.KeyHelper.generateIdentityKeyPair();
     return keyPair;
   } catch (error) {
@@ -62,12 +63,12 @@ const generateIdentityKeyPair = async () => {
     throw error;
   }
 };
-
 /**
  * Gera um ID de registro único
  */
 const generateRegistrationId = async () => {
   try {
+    const libsignal = await getLibsignal();
     const regId = await libsignal.KeyHelper.generateRegistrationId();
     return regId;
   } catch (error) {
@@ -75,7 +76,6 @@ const generateRegistrationId = async () => {
     throw error;
   }
 };
-
 /**
  * Gera um conjunto de pre-keys
  * @param {number} startId - ID inicial 
@@ -83,6 +83,7 @@ const generateRegistrationId = async () => {
  */
 const generatePreKeys = async (startId, count) => {
   try {
+    const libsignal = await getLibsignal();
     const preKeys = await libsignal.KeyHelper.generatePreKeys(startId, count);
     return preKeys;
   } catch (error) {
@@ -90,7 +91,6 @@ const generatePreKeys = async (startId, count) => {
     throw error;
   }
 };
-
 /**
  * Gera uma pre-key assinada
  * @param {object} identityKeyPair - Par de chaves de identidade 
@@ -98,6 +98,7 @@ const generatePreKeys = async (startId, count) => {
  */
 const generateSignedPreKey = async (identityKeyPair, keyId) => {
   try {
+    const libsignal = await getLibsignal();
     const signedPreKey = await libsignal.KeyHelper.generateSignedPreKey(
       identityKeyPair,
       keyId
@@ -108,7 +109,6 @@ const generateSignedPreKey = async (identityKeyPair, keyId) => {
     throw error;
   }
 };
-
 /**
  * Armazena o par de chaves de identidade no localStorage
  * @param {object} keyPair - Par de chaves de identidade
@@ -207,6 +207,9 @@ const storePreKeyBundle = async (bundle) => {
  */
 const createSession = async (recipientId, preKeyBundle, identityKeyPair) => {
   try {
+    // Obter a instância do libsignal
+    const libsignal = await getLibsignal();
+    
     // Criar uma instância do Signal Protocol Store
     const store = new libsignal.SignalProtocolStore();
     
@@ -231,7 +234,6 @@ const createSession = async (recipientId, preKeyBundle, identityKeyPair) => {
     throw error;
   }
 };
-
 /**
  * Criptografa uma mensagem para um destinatário específico
  * @param {string} recipientId - ID do destinatário
@@ -240,6 +242,9 @@ const createSession = async (recipientId, preKeyBundle, identityKeyPair) => {
  */
 const encryptMessage = async (recipientId, plaintext, session) => {
   try {
+    // Obter a instância do libsignal
+    const libsignal = await getLibsignal();
+    
     // Criar um SessionCipher para criptografar mensagens nesta sessão
     const cipher = new libsignal.SessionCipher(session.store, session.address);
     
@@ -253,7 +258,6 @@ const encryptMessage = async (recipientId, plaintext, session) => {
     throw error;
   }
 };
-
 /**
  * Processa uma mensagem PreKey recebida e cria uma sessão se necessário
  * @param {string} senderId - ID do remetente
@@ -262,6 +266,9 @@ const encryptMessage = async (recipientId, plaintext, session) => {
  */
 const processPreKeyMessage = async (senderId, encryptedMessage, identityKeyPair) => {
   try {
+    // Obter a instância do libsignal
+    const libsignal = await getLibsignal();
+    
     // Criar uma instância do Signal Protocol Store
     const store = new libsignal.SignalProtocolStore();
     
@@ -297,6 +304,9 @@ const processPreKeyMessage = async (senderId, encryptedMessage, identityKeyPair)
  */
 const decryptMessage = async (senderId, encryptedMessage, session) => {
   try {
+    // Obter a instância do libsignal
+    const libsignal = await getLibsignal();
+    
     // Criar um SessionCipher
     const cipher = new libsignal.SessionCipher(session.store, session.address);
     

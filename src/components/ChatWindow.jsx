@@ -70,16 +70,18 @@ const ChatWindow = ({ messages: initialMessages, selectedContact, darkMode = fal
         unsubscribe = firestoreService.subscribeToMessages(
           selectedContact.conversationId,
           (fetchedMessages) => {
-            setMessages(fetchedMessages || []);
-            setLoading(false);
-            // Scroll to bottom when messages are loaded
-            setTimeout(scrollToBottom, 100);
+            if (fetchedMessages) {
+              setMessages(fetchedMessages);
+              setLoading(false);
+              // Scroll to bottom when messages are loaded
+              setTimeout(scrollToBottom, 100);
+            } else {
+              // Handle case when messages are null or undefined
+              setMessages([]);
+              setLoading(false);
+            }
           },
-          (error) => {
-            console.error('Error fetching messages:', error);
-            setError(error);
-            setLoading(false);
-          }
+          50 // Limit parameter - standard value for message retrieval
         );
       } catch (err) {
         console.error('Error setting up messages listener:', err);
@@ -96,7 +98,7 @@ const ChatWindow = ({ messages: initialMessages, selectedContact, darkMode = fal
         unsubscribe();
       }
     };
-  }, [selectedContact]);
+  }, [selectedContact, scrollToBottom]);
 
   // Scroll to bottom when messages change
   useEffect(() => {
@@ -211,9 +213,9 @@ const ChatWindow = ({ messages: initialMessages, selectedContact, darkMode = fal
       {/* Content based on active tab */}
       {activeTab === 'chat' && (
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
-          {messages.map((message) => {
+          {messages.length > 0 ? messages.map((message) => {
             const isAudio = message.type === 'audio';
-            const isUserMessage = message.sender === 'user';
+            const isUserMessage = message.senderId === currentUser?.id;
             
             // Handle the case where message content is an object with type and content fields
             let displayContent;
@@ -253,7 +255,13 @@ const ChatWindow = ({ messages: initialMessages, selectedContact, darkMode = fal
                 </div>
               </div>
             );
-          })}
+          }) : (
+            <div className="flex justify-center items-center h-64">
+              <p className={`text-center ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                Nenhuma mensagem nesta conversa. Comece a conversar agora!
+              </p>
+            </div>
+          )}
           <div ref={messagesEndRef} />
         </div>
       )}
