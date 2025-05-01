@@ -133,7 +133,7 @@ const DashboardScreen = () => {
     setFilteredContacts(filtered);
   };
 
-  const handleSendMessage = (content) => {
+  const handleSendMessage = async (content) => {
     if (!selectedContact) return;
     
     const timestamp = new Date();
@@ -150,7 +150,7 @@ const DashboardScreen = () => {
     
     // Save message to database
     // Find or create conversation for this contact
-    const conversations = Database.getAllConversations();
+    const conversations = await Database.getAllConversations();
     let conversation = conversations.find(conv => {
       return conv.participants.some(p => p.id === selectedContact.id);
     });
