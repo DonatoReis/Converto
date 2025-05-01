@@ -379,6 +379,98 @@ const Database = {
   },
   
   /**
+   * Gets default value for a field type
+   * @param {string} fieldName - Field name
+   * @param {*} inferredType - Sample value to infer type (optional)
+   * @returns {*} Default value for the field type
+   * @private
+   */
+  _getDefaultValueForType: (fieldName, inferredType = null) => {
+    switch (fieldName) {
+      // String fields
+      case 'ownerId':
+      case 'userId':
+      case 'name':
+      case 'email':
+      case 'phone':
+      case 'document':
+      case 'company':
+      case 'lastMessage':
+      case 'avatar':
+      case 'title':
+      case 'subtitle':
+      case 'message':
+      case 'content':
+        return '';
+        
+      // Number fields
+      case 'unreadCount':
+      case 'count':
+      case 'index':
+      case 'priority':
+        return 0;
+        
+      // Boolean fields
+      case 'isRead':
+      case 'isActive':
+      case 'isBlocked':
+      case 'isArchived':
+      case 'isGroup':
+      case 'isOnline':
+        return false;
+        
+      // Special fields with specific default values
+      case 'status':
+        return 'offline';
+        
+      // Complex objects
+      case 'address':
+        return {
+          street: '',
+          number: '',
+          city: '',
+          state: '',
+          zipCode: '',
+          neighborhood: '',
+          complement: ''
+        };
+      
+      // Arrays
+      case 'mediaAttachments':
+      case 'readBy':
+      case 'participants':
+      case 'tags':
+        return [];
+      
+      // For unknown fields, infer type from the provided sample/context
+      default:
+        if (inferredType === null) {
+          // Default to empty string if no type information available
+          return '';
+        }
+        
+        // Infer type from the sample value
+        const inferredTypeName = typeof inferredType;
+        
+        switch (inferredTypeName) {
+          case 'string':
+            return '';
+          case 'number':
+            return 0;
+          case 'boolean':
+            return false;
+          case 'object':
+            if (Array.isArray(inferredType)) {
+              return [];
+            }
+            return {};
+          default:
+            return '';
+        }
+    }
+  },
+  
+  /**
    * Adds a new contact
    * @param {Object} contactData - Contact data
    * @returns {Promise<Object|null>} Added contact or null
@@ -540,56 +632,6 @@ const Database = {
   },
   
   /**
-   * Search contacts using various criteria
-   * @param {Object} criteria - Search criteria (document, email, phone, etc.)
-   * @returns {Promise<Array>} Matching contacts
-   */
-  searchContacts: async (criteria) => {
-    try {
-      const auth = getAuth();
-      const user = auth.currentUser;
-      
-      if (!user) {
-        logWarning('Attempting to search contacts without authenticated user');
-        return [];
-      }
-      
-      // Base query for the current user's contacts
-      let q = query(
-        contactsRef, 
-        where('ownerId', '==', user.uid)
-      );
-      
-      // Refine query based on search criteria
-      if (criteria.document) {
-        // Search by document (CPF/CNPJ)
-        // Note: In a real implementation, you might want to search by both 
-        // formatted and unformatted document strings
-        q = query(q, where('document', '==', criteria.document));
-      } else if (criteria.email) {
-        // Search by email (case-insensitive search requires a separate index)
-        q = query(q, where('email', '==', criteria.email.toLowerCase()));
-      } else if (criteria.phone) {
-        // Search by phone (remove non-digits for consistent comparison)
-        q = query(q, where('phone', '==', criteria.phone));
-      } else if (criteria.name) {
-        // Search by name - typically would use a dedicated search service for real text search
-        // This is a simplified approach that only works for exact matches
-        q = query(q, where('name', '>=', criteria.name), where('name', '<=', criteria.name + '\uf8ff'));
-      }
-      
-      // Execute the query
-      const querySnapshot = await getDocs(q);
-      return querySnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-    } catch (error) {
-      logError('Error searching contacts', { criteria, error: error.message }, error);
-      return [];
-    }
-  },
-
   // ==================== CONVERSATION MANAGEMENT ====================
 
   /**
@@ -703,93 +745,112 @@ const Database = {
     }
   },
 
-  // ==================== USER SETTINGS ====================
+  // ==================== SEARCH FUNCTIONALITY ====================
+
   /**
-   * Helper function to get the appropriate default value for a field based on field key and expected type
-   * @param {string} fieldKey - The field key/name
-   * @param {*} inferredType - The inferred type or sample value to derive type
-   * @returns {*} The appropriate default value
-   * @private
+   * Search for contacts in both user's contacts and global users
+   * @param {Object} criteria - Search criteria (document, email, phone, name, etc.)
+   * @returns {Promise<Array>} Matching contacts and users
    */
-  _getDefaultValueForType: (fieldKey, inferredType = null) => {
-    // Known field-specific defaults based on field name
-    switch (fieldKey) {
-      // User and contact fields
-      case 'ownerId':
-      case 'userId':
-      case 'name':
-      case 'fullName':
-      case 'email':
-      case 'phone':
-      case 'phoneRaw':
-      case 'document':
-      case 'documentRaw':
-      case 'documentType':
-      case 'company':
-      case 'lastMessage':
-      case 'avatar':
-        return '';
+  searchContacts: async (criteria) => {
+    try {
+      const auth = getAuth();
+      const user = auth.currentUser;
       
-      // Boolean fields
-      case 'isFavorite':
-      case 'isArchived':
-      case 'isBlocked':
-      case 'isMuted':
-      case 'isPinned':
-        return false;
-      
-      // Numeric fields
-      case 'unreadCount':
-        return 0;
-      
-      // Special status field
-      case 'status':
-        return 'offline';
-      
-      // Known nested objects with their specific defaults
-      case 'address':
-        return {
-          street: '',
-          number: '',
-          city: '',
-          state: '',
-          zipCode: '',
-          neighborhood: '',
-          complement: ''
-        };
-      
-      // Arrays
-      case 'mediaAttachments':
-      case 'readBy':
-      case 'participants':
-      case 'tags':
+      if (!user) {
+        logWarning('Attempting to search contacts without authenticated user');
         return [];
+      }
       
-      // For unknown fields, infer type from the provided sample/context
-      default:
-        if (inferredType === null) {
-          // Default to empty string if no type information available
-          return '';
+      // Step 1: Search in user's contacts collection
+      let contactsQuery = query(
+        contactsRef, 
+        where('ownerId', '==', user.uid)
+      );
+      
+      // Refine query based on search criteria for contacts
+      if (criteria.document) {
+        contactsQuery = query(contactsQuery, where('document', '==', criteria.document));
+      } else if (criteria.email) {
+        contactsQuery = query(contactsQuery, where('email', '==', criteria.email.toLowerCase()));
+      } else if (criteria.phone) {
+        contactsQuery = query(contactsQuery, where('phone', '==', criteria.phone));
+      } else if (criteria.name) {
+        contactsQuery = query(contactsQuery, where('name', '>=', criteria.name), 
+                                         where('name', '<=', criteria.name + '\uf8ff'));
+      }
+      
+      // Step 2: Search in global users collection
+      let usersQuery;
+      
+      // Only search for users that are not the current user
+      if (criteria.document) {
+        usersQuery = query(usersRef, 
+                          where('document', '==', criteria.document),
+                          where('id', '!=', user.uid));
+      } else if (criteria.email) {
+        usersQuery = query(usersRef, 
+                          where('email', '==', criteria.email.toLowerCase()),
+                          where('id', '!=', user.uid));
+      } else if (criteria.phone) {
+        usersQuery = query(usersRef, 
+                          where('phone', '==', criteria.phone),
+                          where('id', '!=', user.uid));
+      } else if (criteria.name) {
+        // Using fullName field for user search as specified
+        usersQuery = query(usersRef, 
+                          where('fullName', '>=', criteria.name),
+                          where('fullName', '<=', criteria.name + '\uf8ff'));
+      } else if (criteria.company) {
+        usersQuery = query(usersRef,
+                          where('company', '>=', criteria.company),
+                          where('company', '<=', criteria.company + '\uf8ff'));                          
+      } else {
+        // If no specific criteria, don't search users globally
+        // This prevents returning the entire users collection
+        usersQuery = null;
+      }
+      
+      // Execute contacts query
+      const contactsSnapshot = await getDocs(contactsQuery);
+      const contactsResults = contactsSnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data(),
+        isContact: true, // Mark as existing contact
+      }));
+      
+      // Only execute users query if we have a specific search criteria
+      let usersResults = [];
+      if (usersQuery) {
+        const usersSnapshot = await getDocs(usersQuery);
+        usersResults = usersSnapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data(),
+          isContact: false, // Mark as not yet a contact
+        }));
+      }
+      
+      // Step 3: Merge results and remove duplicates
+      // Create a map of contacts by email for fast lookup
+      const contactsByEmail = {};
+      contactsResults.forEach(contact => {
+        if (contact.email) {
+          contactsByEmail[contact.email.toLowerCase()] = true;
         }
-        
-        // Infer type from the sample value
-        const inferredTypeName = typeof inferredType;
-        
-        switch (inferredTypeName) {
-          case 'string':
-            return '';
-          case 'number':
-            return 0;
-          case 'boolean':
-            return false;
-          case 'object':
-            if (Array.isArray(inferredType)) {
-              return [];
-            }
-            return {};
-          default:
-            return '';
-        }
+      });
+      
+      // Filter out users that are already contacts
+      const uniqueUsersResults = usersResults.filter(user => {
+        return !user.email || !contactsByEmail[user.email.toLowerCase()];
+      });
+      
+      // Combine results, putting contacts first
+      const combinedResults = [...contactsResults, ...uniqueUsersResults];
+      
+      return combinedResults;
+    } catch (error) {
+      logError('Error searching contacts and users', { criteria, error: error.message }, error);
+      return [];
     }
   },
 

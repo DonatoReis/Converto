@@ -1,9 +1,12 @@
 
 // src/components/Dashboard/Header.jsx
 import React, { useState, useRef, useEffect } from 'react';
+import { IoNotificationsOutline, IoSettingsOutline, IoLogOutOutline, IoPersonOutline } from 'react-icons/io5';
+import { FaChevronDown } from 'react-icons/fa';
 import { Link } from 'react-router-dom';
-import { useAuth } from '../../context/AuthContext';
+import Database from '../../utils/database';
 import { useTheme } from '../../context/ThemeContext';
+import { useAuth } from '../../context/AuthContext';
 import Logo from '../Logo';
 import ThemeToggle from '../ThemeToggle';
 import firestoreService from '../../firebase/firestoreService';

@@ -83,34 +83,41 @@ const DashboardScreen = () => {
   // Load messages when a contact is selected
   useEffect(() => {
     if (selectedContact) {
-      const loadMessages = () => {
-        // Find conversation for this contact - include archived in search
-        const conversations = Database.getAllConversations(true);
-        const conversation = conversations.find(conv => {
-          return conv.participants.some(p => p.id === selectedContact.id);
-        });
-        
-        if (conversation) {
-          // Reset unread counter when loading messages
-          if (conversation.unreadCount > 0) {
-            Database.updateConversation(conversation.id, {
-              unreadCount: 0
-            });
-          }
+      const loadMessages = async () => {
+        try {
+          // Find conversation for this contact - include archived in search
+          const conversations = await Database.getAllConversations(true);
+          const conversation = conversations.find(conv => {
+            return conv.participants.some(p => p.id === selectedContact.id);
+          });
           
-          setMessages(conversation.messages || []);
-        } else {
+          if (conversation) {
+            // Reset unread counter when loading messages
+            if (conversation.unreadCount > 0) {
+              await Database.updateConversation(conversation.id, {
+                unreadCount: 0
+              });
+            }
+            
+            setMessages(conversation.messages || []);
+          } else {
+            setMessages([]);
+          }
+        } catch (error) {
+          console.error("Error loading messages:", error);
           setMessages([]);
         }
       };
+      
+      // Call the async function
       loadMessages();
     } else {
       setMessages([]);
     }
   }, [selectedContact]);
   // This is the original handler, now delegating to the one with reset functionality
-  const handleSelectContact = (contact) => {
-    handleSelectContactWithReset(contact);
+  const handleSelectContact = async (contact) => {
+    await handleSelectContactWithReset(contact);
   };
 
   const handleSearch = (searchTerm) => {
@@ -229,20 +236,21 @@ const DashboardScreen = () => {
   };
   
   // Reset unread counter when selecting a contact
-  const handleSelectContactWithReset = (contact) => {
+  const handleSelectContactWithReset = async (contact) => {
     if (contact) {
-      // Find the conversation for this contact
-      const conversations = Database.getAllConversations(true);
-      const conversation = conversations.find(conv => {
-        return conv.participants.some(p => p.id === contact.id);
-      });
-      
-      if (conversation && conversation.unreadCount > 0) {
-        // Reset unread counter in database
-        Database.updateConversation(conversation.id, {
-          unreadCount: 0
+      try {
+        // Find the conversation for this contact
+        const conversations = await Database.getAllConversations(true);
+        const conversation = conversations.find(conv => {
+          return conv.participants.some(p => p.id === contact.id);
         });
         
+        if (conversation && conversation.unreadCount > 0) {
+          // Reset unread counter in database
+          await Database.updateConversation(conversation.id, {
+            unreadCount: 0
+          });
+        }
         // Update the contact in the local state
         const updatedContact = {...contact, unreadCount: 0};
         setContacts(prev => prev.map(c => c.id === contact.id ? updatedContact : c));
@@ -250,9 +258,10 @@ const DashboardScreen = () => {
         
         // Set the selected contact
         setSelectedContact(updatedContact);
-      } else {
-        // Just set the selected contact if no unread messages
-        setSelectedContact(contact);
+      } catch (err) {
+        console.error('Erro ao resetar contador de não-lidos:', err);
+        // você pode escolher ainda assim selecionar o contato
+        setSelectedContact(contact);   
       }
     } else {
       setSelectedContact(null);

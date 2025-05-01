@@ -408,25 +408,30 @@ export const subscribeToConversations = (
   export const getOrCreateConversation = async (participantIds) => {
     try {
       const conversationsRef = collection(firestore, "conversations");
-      return await runTransaction(firestore, async (transaction) => {
-        // Query para conversas contendo o primeiro participante
-        const q = query(
-          conversationsRef,
-          where("participants", "array-contains", participantIds[0])
+      
+      // Query para conversas contendo o primeiro participante - FORA da transaction
+      const q = query(
+        conversationsRef,
+        where("participants", "array-contains", participantIds[0])
+      );
+      const querySnapshot = await getDocs(q);
+      
+      // Verifica correspondência exata de participantes
+      const existingDoc = querySnapshot.docs.find((doc) => {
+        const data = doc.data();
+        return (
+          data.participants.length === participantIds.length &&
+          participantIds.every((id) => data.participants.includes(id))
         );
-        const snapshot = await transaction.get(q);
-        // Verifica correspondência exata de participantes
-        const existingDoc = snapshot.docs.find((doc) => {
-          const data = doc.data();
-          return (
-            data.participants.length === participantIds.length &&
-            participantIds.every((id) => data.participants.includes(id))
-          );
-        });
-        if (existingDoc) {
-          const data = existingDoc.data();
-          return { id: existingDoc.id, ...data };
-        }
+      });
+      
+      if (existingDoc) {
+        const data = existingDoc.data();
+        return { id: existingDoc.id, ...data };
+      }
+      
+      // Se não encontrou conversa existente, cria uma nova com transaction
+      return await runTransaction(firestore, async (transaction) => {
         // Cria nova conversa de forma atômica
         const newConvRef = doc(conversationsRef);
         const newConversation = {
@@ -446,6 +451,7 @@ export const subscribeToConversations = (
           ...newConversation,
           createdAt: new Date(),
           updatedAt: new Date(),
+          participants: participantIds
         };
       });
     } catch (error) {
@@ -1118,6 +1124,31 @@ export const addMarketplaceProduct = async (productData) => {
  * @param {string} phone Número de telefone a ser buscado
  * @returns {Promise<Array>} Usuários encontrados
  */
+/**
+ * Obtém todos os usuários cadastrados no sistema
+ * @param {number} limit Limite de usuários a retornar
+ * @returns {Promise<Array>} Lista de usuários
+ */
+export const getAllUsers = async (maxResults = 10) => {
+  try {
+    const usersRef = collection(firestore, "users");
+    const q = query(
+      usersRef,
+      orderBy("createdAt", "desc"),
+      limit(maxResults)
+    );
+
+    const querySnapshot = await getDocs(q);
+    return querySnapshot.docs.map((doc) => ({
+      id: doc.id,
+      ...doc.data()
+    }));
+  } catch (error) {
+    console.error("Erro ao obter usuários:", error);
+    throw error;
+  }
+};
+
 export const searchUsersByPhone = async (phone) => {
   try {
     const normalized = String(phone || "").replace(/\D/g, "");
@@ -1177,6 +1208,7 @@ const firestoreService = {
   getUser,
   updateUser,
   createUser,
+  getAllUsers,
 
   // Contatos
   getAllContacts,

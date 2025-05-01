@@ -10,10 +10,11 @@ const LogLevel = {
 };
 
 /**
+/**
  * Whether we're in development mode
  */
-const isDev = process.env.NODE_ENV !== 'production';
-
+// Safe way to check for development environment
+const isDev = typeof process !== 'undefined' && process.env && process.env.NODE_ENV !== 'production';
 /**
  * Log a message with context data
  * 

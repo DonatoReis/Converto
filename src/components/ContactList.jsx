@@ -66,11 +66,16 @@ const ContactList = ({
     });
   };
 
-  // Handle context menu actions
+  // Handle selecting an existing contact
+  const handleSelectExistingContact = (contact) => {
+    onSelectContact(contact);
+    onClose();
+  };
+  
+  // Handle pinning a conversation
   const handlePin = () => {
     const contactToPin = getContactForContextMenu();
     if (contactToPin) {
-      // Find conversation for this contact
       const conversations = Database.getAllConversations();
       const conversation = conversations.find(conv => {
         return conv.participants.some(p => {

@@ -5,6 +5,7 @@ import { collection, query, where, getDocs } from 'firebase/firestore';
 import { firestore } from '../firebase/config';
 import firestoreService from '../firebase/firestoreService';
 import Database from '../utils/database';
+import { CSSTransition } from 'react-transition-group';
 
 // Helper functions for search
 async function searchContactsLocal(currentUserId, normalizedTerm, phoneSearch, documentSearch) {
@@ -101,6 +102,28 @@ import { getScore } from '../utils/serasaScore';
 import SerasaScoreCard from './SerasaScoreCard';
 import { useTheme } from '../context/ThemeContext';
 
+// Add CSS for modal animation
+const modalAnimationStyle = `
+.modal-animation-enter {
+  opacity: 0;
+  transform: translateY(-20px);
+}
+.modal-animation-enter-active {
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity 300ms, transform 300ms;
+}
+.modal-animation-exit {
+  opacity: 1;
+  transform: translateY(0);
+}
+.modal-animation-exit-active {
+  opacity: 0;
+  transform: translateY(-20px);
+  transition: opacity 300ms, transform 300ms;
+}
+`;
+
 const NewConversationModal = ({ isOpen, onClose, contacts, onSelectContact, onAddNewContact }) => {
   console.log('=== NewConversationModal rendered ===');
   console.log('Props:', { isOpen, contacts: contacts?.length, onSelectContact, onAddNewContact });
@@ -125,6 +148,11 @@ const NewConversationModal = ({ isOpen, onClose, contacts, onSelectContact, onAd
   const [globalSearchResults, setGlobalSearchResults] = useState([]);
   const [isSearchingGlobal, setIsSearchingGlobal] = useState(false);
   const [foundGlobalUser, setFoundGlobalUser] = useState(null);
+  
+  // State for all users from the users collection
+  const [allUsers, setAllUsers] = useState([]);
+  const [nonContactUsers, setNonContactUsers] = useState([]);
+  const [isLoadingUsers, setIsLoadingUsers] = useState(false);
   // State for new contact data
   const [newContact, setNewContact] = useState({
     document: '',
@@ -207,6 +235,78 @@ const NewConversationModal = ({ isOpen, onClose, contacts, onSelectContact, onAd
       searchInputRef.current.focus();
     }
   }, [isOpen, showNewContactForm]);
+  
+  // Fetch users from "users" collection when modal opens
+  useEffect(() => {
+    async function fetchUsers() {
+      if (!isOpen) return;
+      
+      try {
+        setIsLoadingUsers(true);
+        // Get current user ID
+        const auth = getAuth();
+        const currentUser = auth.currentUser;
+        
+        if (!currentUser) {
+          console.warn('Cannot fetch users: No user is logged in');
+          return;
+        }
+        
+        // Get all users from the users collection
+        const allUsersData = await firestoreService.getAllUsers(10); // Limit to 50 users for performance
+        
+        if (!allUsersData) {
+          console.warn('No users returned from getAllUsers');
+          setAllUsers([]);
+          setNonContactUsers([]);
+          return;
+        }
+        
+        console.log(`Loaded ${allUsersData.length} users from the users collection`);
+        
+        // Process users to have consistent property names
+        const processedUsers = allUsersData.map(user => ({
+          id: user.id || '',
+          fullName: user.fullName || user.name || user.nome || 'Usuário',
+          name: user.name || user.fullName || user.nome || '',
+          email: user.email || '',
+          phone: user.phone || user.telefone || '',
+          company: user.company || user.empresa || '',
+          source: 'users'
+        }));
+        
+        // Filter out the current user
+        const usersWithoutCurrent = processedUsers.filter(user => user.id !== currentUser.uid);
+        
+        setAllUsers(usersWithoutCurrent);
+        
+        // Filter out users that are already in contacts
+        // This requires knowledge of which property in contacts matches the user ID
+        // Assuming contacts have properties that can match users
+        let contactIdentifiers = contacts.map(contact => [
+          contact.id,
+          contact.email?.toLowerCase(),
+          contact.userId,
+          contact.phoneRaw
+        ]).flat().filter(Boolean);
+        
+        const filteredUsers = usersWithoutCurrent.filter(user => {
+          // Check all potential matching fields to determine if this user is already a contact
+          return !contactIdentifiers.includes(user.id) && 
+                 !contactIdentifiers.includes(user.email?.toLowerCase());
+        });
+        
+        setNonContactUsers(filteredUsers);
+      } catch (error) {
+        console.error('Error fetching users:', error);
+        showNotification('Erro ao carregar usuários', 'error');
+      } finally {
+        setIsLoadingUsers(false);
+      }
+    }
+    
+    fetchUsers();
+  }, [isOpen, contacts]);
 
   // Keep filteredContacts and globalSearchResults in sync with searchResults
   useEffect(() => {
@@ -955,6 +1055,47 @@ const handleCreateContact = async (e) => {
 
   // Render search results (local and global) using searchResults as the source of truth
   const renderSearchResults = () => {
+    if (!searchTerm) {
+      return (
+        <div className="p-4">
+          <div className="space-y-2 mb-4">
+            {nonContactUsers.map(user => {
+              const userDisplayName = user.fullName || user.nome || user.name || user.displayName || 'Usuário';
+              const userDisplayInfo = user.email || user.telefone || user.phone || '';
+              
+              return (
+                <div
+                  key={user.id}
+                  className={`p-3 rounded-lg cursor-pointer ${
+                    darkMode ? 'hover:bg-gray-800' : 'hover:bg-gray-100'
+                  }`}
+                >
+                  <div className="flex items-center space-x-3">
+                    <div className={`w-10 h-10 rounded-full flex items-center justify-center ${darkMode ? 'bg-gray-700' : 'bg-gray-200'}`}>
+                      {user.avatar ? (
+                        <img src={user.avatar} alt={userDisplayName} className="w-10 h-10 rounded-full" />
+                      ) : (
+                        <span className="text-lg font-semibold">{userDisplayName.charAt(0).toUpperCase()}</span>
+                      )}
+                    </div>
+                    <div className="flex-1">
+                      <div className="font-medium">{userDisplayName}</div>
+                      {userDisplayInfo && <div className="text-sm text-gray-500">{userDisplayInfo}</div>}
+                    </div>
+                    <button
+                      onClick={() => handleStartConversationWithGlobalUser(user)}
+                      className="ml-2 flex-shrink-0 bg-blue-500 text-white px-3 py-1 rounded-md text-sm hover:bg-blue-600 transition-colors"
+                    >
+                      Conversar
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      );
+    }
     // Derive local and global results from searchResults
     const localResults = searchResults.filter(r => r.source === 'contacts');
     const globalResults = searchResults.filter(r => r.source === 'users');
@@ -1117,9 +1258,33 @@ const handleCreateContact = async (e) => {
   }; // Close renderSearchResults function
 
   // Now we add the return statement with a properly structured JSX tree
+  // Add style element for modal animation
+  useEffect(() => {
+    // Create style element if it doesn't exist
+    if (!document.getElementById('modal-animation-style')) {
+      const styleElement = document.createElement('style');
+      styleElement.id = 'modal-animation-style';
+      styleElement.textContent = modalAnimationStyle;
+      document.head.appendChild(styleElement);
+      
+      // Clean up on unmount
+      return () => {
+        const styleToRemove = document.getElementById('modal-animation-style');
+        if (styleToRemove) {
+          document.head.removeChild(styleToRemove);
+        }
+      };
+    }
+  }, []);
+
   return (
     <>
-      {isOpen && (
+      <CSSTransition
+        in={isOpen}
+        timeout={300}
+        classNames="modal-animation"
+        unmountOnExit
+      >
         <div className="fixed inset-0 z-50 overflow-hidden bg-black bg-opacity-50 flex items-center justify-center p-4 transition-opacity duration-300 ease-out">
           <div 
             ref={modalRef}
@@ -1498,7 +1663,7 @@ const handleCreateContact = async (e) => {
           </div>
         </div>
       </div>
-      )}
+      </CSSTransition>
     </>
   );
 };
